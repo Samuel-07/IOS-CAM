@@ -100,3 +100,22 @@ public struct MiCamVideoFrameHeader {
         return data
     }
 }
+
+public struct MiCamControlCommand {
+    public var lens: UInt8
+    public var targetWidth: UInt16
+    public var targetHeight: UInt16
+    public var targetFps: UInt16
+    public var torchEnabled: UInt8
+    public var zoomFactor: Float
+    
+    public init(lens: MiCamCameraLens = .wide, targetWidth: UInt16 = 1920, targetHeight: UInt16 = 1080, targetFps: UInt16 = 60, torchEnabled: Bool = false, zoomFactor: Float = 1.0) {
+        self.lens = lens.rawValue
+        self.targetWidth = targetWidth
+        self.targetHeight = targetHeight
+        self.targetFps = targetFps
+        self.torchEnabled = torchEnabled ? 1 : 0
+        self.zoomFactor = zoomFactor
+    }
+}
+
