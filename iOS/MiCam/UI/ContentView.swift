@@ -257,7 +257,7 @@ struct SettingsSheetView: View {
     private func formatRow(for fmt: CameraFormatDescriptor) -> some View {
         let isSelected = cameraManager.currentFormat?.id == fmt.id
         return Button(action: {
-            cameraManager.selectFormat(fmt, fps: selectedFps)
+            cameraManager.configureFormat(fmt, targetFps: selectedFps)
         }) {
             HStack {
                 Text("\(fmt.width) x \(fmt.height)")
@@ -294,7 +294,7 @@ struct SettingsSheetView: View {
         return Button(action: {
             selectedFps = fps
             if let currentFmt = cameraManager.currentFormat {
-                cameraManager.selectFormat(currentFmt, fps: selectedFps)
+                cameraManager.configureFormat(currentFmt, targetFps: selectedFps)
             }
         }) {
             Text("\(Int(fps)) FPS")
