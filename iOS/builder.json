@@ -1,6 +1,10 @@
 {
   "project": "MiCam",
   "platform": "ios",
+  "github": {
+    "owner": "Samuel-07",
+    "repo": "IOS-CAM"
+  },
   "ios": {
     "path": "MiCam",
     "scheme": "MiCam",
