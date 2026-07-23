@@ -104,7 +104,7 @@ public class VideoEncoder {
         guard let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
         
         var totalLength: Int = 0
-        var dataPointer: UnsafeMutablePointer<Char>?
+        var dataPointer: UnsafeMutablePointer<CChar>?
         let lengthStatus = CMBlockBufferGetDataPointer(dataBuffer, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &totalLength, dataPointerOut: &dataPointer)
         
         guard lengthStatus == noErr, let ptr = dataPointer else { return }
@@ -129,7 +129,7 @@ public class VideoEncoder {
             naluData.append(contentsOf: startCode)
             naluData.append(Data(bytes: ptr + bufferOffset + naluHeaderLength, count: Int(naluLength)))
             
-            bufferOffset += Int(naluHeaderLength + naluLength)
+            bufferOffset += naluHeaderLength + Int(naluLength)
         }
         
         let timestampUs = UInt64(CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds * 1_000_000)
@@ -142,12 +142,12 @@ public class VideoEncoder {
         let startCode: [UInt8] = [0x00, 0x00, 0x00, 0x01]
         
         var paramCount: Int = 0
-        CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format, atIndex: 0, parameterSetPointerOut: nil, parameterSetSizeOut: nil, parameterSetCountOut: &paramCount, naluHeaderLengthOut: nil)
+        CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format, parameterSetIndex: 0, parameterSetPointerOut: nil, parameterSetSizeOut: nil, parameterSetCountOut: &paramCount, nalUnitHeaderLengthOut: nil)
         
         for i in 0..<paramCount {
             var ptr: UnsafePointer<UInt8>?
             var size: Int = 0
-            CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format, atIndex: i, parameterSetPointerOut: &ptr, parameterSetSizeOut: &size, parameterSetCountOut: nil, naluHeaderLengthOut: nil)
+            CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format, parameterSetIndex: i, parameterSetPointerOut: &ptr, parameterSetSizeOut: &size, parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil)
             if let ptr = ptr {
                 result.append(contentsOf: startCode)
                 result.append(Data(bytes: ptr, count: size))
