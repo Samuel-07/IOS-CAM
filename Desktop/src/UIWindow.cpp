@@ -429,21 +429,31 @@ void MainWindowUI::DrawControlPanel(Graphics& g, int x, int y, int width, int he
     g.DrawString(torchLabel, -1, &torchFont, PointF((REAL)x + 35, (REAL)lensY + 22), &torchText);
 
     // Virtual Camera Card
-    int vcamY = height - 140;
-    const wchar_t* vcamTitle = isEs ? L"NODOS DE CAMARA VIRTUAL" : L"VIRTUAL CAMERA NODES";
+    int vcamY = height - 160;
+    const wchar_t* vcamTitle = isEs ? L"NODOS DE CAMARA VIRTUAL (MULTIDISPOSITIVO)" : L"VIRTUAL CAMERA NODES (DUAL IPHONE)";
     g.DrawString(vcamTitle, -1, &sectionFont, PointF((REAL)x + 20, (REAL)vcamY), &grayBrush);
 
     SolidBrush vcamCard(Color(255, 20, 23, 37));
-    g.FillRectangle(&vcamCard, x + 20, vcamY + 25, width - 40, 100);
-    g.DrawRectangle(&borderPen, x + 20, vcamY + 25, width - 40, 100);
+    g.FillRectangle(&vcamCard, x + 20, vcamY + 25, width - 40, 125);
+    g.DrawRectangle(&borderPen, x + 20, vcamY + 25, width - 40, 125);
 
-    Font vcamFont(L"Segoe UI", 9, FontStyleBold);
+    Font vcamFont(L"Segoe UI", 8, FontStyleBold);
     SolidBrush greenText(Color(255, 52, 211, 153));
-    const wchar_t* vcamName = L"MiCam Virtual Camera 1";
-    const wchar_t* vcamState = isEs ? L"   Estado: ACTIVO (DirectShow/MF)" : L"   State: ACTIVE (DirectShow/MF)";
-    const wchar_t* obsState = isEs ? L"Conexion Directa OBS Studio" : L"OBS Studio Direct Pipe";
+    SolidBrush cyanText(Color(255, 0, 240, 255));
 
-    g.DrawString(vcamName, -1, &vcamFont, PointF((REAL)x + 32, (REAL)vcamY + 38), &whiteBrush);
-    g.DrawString(vcamState, -1, &vcamFont, PointF((REAL)x + 32, (REAL)vcamY + 58), &greenText);
-    g.DrawString(obsState, -1, &vcamFont, PointF((REAL)x + 32, (REAL)vcamY + 84), &greenText);
+    const wchar_t* vcam1Name = L"● MiCam Virtual Camera 1 (iPhone 1)";
+    const wchar_t* vcam1State = isEs ? L"   Estado: ACTIVO (DirectShow/MF - Port 50000)" : L"   State: ACTIVE (DirectShow/MF - Port 50000)";
+    
+    const wchar_t* vcam2Name = L"● MiCam Virtual Camera 2 (iPhone 2)";
+    const wchar_t* vcam2State = isEs ? L"   Estado: ACTIVO (DirectShow/MF - Port 50001 / WiFi)" : L"   State: ACTIVE (DirectShow/MF - Port 50001 / WiFi)";
+    
+    const wchar_t* obsState = isEs ? L"OBS Studio Direct Pipe: Dual Stream Ingest" : L"OBS Studio Direct Pipe: Dual Stream Ingest";
+
+    g.DrawString(vcam1Name, -1, &vcamFont, PointF((REAL)x + 32, (REAL)vcamY + 32), &whiteBrush);
+    g.DrawString(vcam1State, -1, &vcamFont, PointF((REAL)x + 32, (REAL)vcamY + 48), &greenText);
+    
+    g.DrawString(vcam2Name, -1, &vcamFont, PointF((REAL)x + 32, (REAL)vcamY + 70), &whiteBrush);
+    g.DrawString(vcam2State, -1, &vcamFont, PointF((REAL)x + 32, (REAL)vcamY + 86), &greenText);
+    
+    g.DrawString(obsState, -1, &vcamFont, PointF((REAL)x + 32, (REAL)vcamY + 110), &cyanText);
 }
