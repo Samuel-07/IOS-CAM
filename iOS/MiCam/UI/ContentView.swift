@@ -220,8 +220,6 @@ struct SettingsSheetView: View {
     @Environment(\.presentationMode) var presentationMode
     
     @State private var selectedFps: Double = 30.0
-    @State private var bitrateMbps: Double = 15.0
-    @State private var selectedCodec: String = "H.264"
     
     var body: some View {
         NavigationView {
@@ -230,135 +228,114 @@ struct SettingsSheetView: View {
                 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        // Section 1: Video Format & Resolution
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("STREAM RESOLUTION & FORMAT")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(Color(red: 0.0, green: 0.94, blue: 1.0))
-                            
-                            ForEach(cameraManager.availableFormats, id: \.id) { fmt in
-                                Button(action: {
-                                    cameraManager.selectFormat(fmt, fps: selectedFps)
-                                }) {
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text("\(fmt.width) x \(fmt.height)")
-                                                .font(.system(size: 15, weight: .bold, design: .monospaced))
-                                                .foregroundColor(.white)
-                                            Text("Max \(Int(fmt.maxFps)) FPS • Ultra-Low Latency")
-                                                .font(.system(size: 11))
-                                                .foregroundColor(.gray)
-                                        }
-                                        Spacer()
-                                        if cameraManager.currentFormat?.id == fmt.id {
-                                            Image(systemName: "checkmark.circle.fill")
-                                                .foregroundColor(Color(red: 0.0, green: 0.94, blue: 1.0))
-                                        }
-                                    }
-                                    .padding(14)
-                                    .background(Color.white.opacity(0.06))
-                                    .cornerRadius(12)
-                                }
-                            }
-                        }
-                        
-                        // Section 2: Framerate & Encoder Parameters
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("TARGET FPS & BITRATE")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(Color(red: 0.0, green: 0.94, blue: 1.0))
-                            
-                            HStack(spacing: 12) {
-                                ForEach([24.0, 30.0, 60.0, 120.0], id: \.self) { fps in
-                                    Button(action: {
-                                        selectedFps = fps
-                                        if let currentFmt = cameraManager.currentFormat {
-                                            cameraManager.selectFormat(currentFmt, fps: selectedFps)
-                                        }
-                                    }) {
-                                        Text("\(Int(fps)) FPS")
-                                            .font(.system(size: 13, weight: .bold))
-                                            .frame(maxWidth: .infinity)
-                                            .padding(.vertical, 10)
-                                            .background(selectedFps == fps ? Color(red: 0.0, green: 0.94, blue: 1.0) : Color.white.opacity(0.08))
-                                            .foregroundColor(selectedFps == fps ? .black : .white)
-                                            .cornerRadius(10)
-                                    }
-                                }
-                            }
-                            
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Text("Video Bitrate")
-                                        .font(.system(size: 13, weight: .medium))
-                                        .foregroundColor(.white)
-                                    Spacer()
-                                    Text("\(Int(bitrateMbps)) Mbps")
-                                        .font(.system(size: 13, weight: .bold, design: .monospaced))
-                                        .foregroundColor(Color(red: 0.0, green: 0.94, blue: 1.0))
-                                }
-                                Slider(value: $bitrateMbps, in: 5...50, step: 1)
-                                    .accentColor(Color(red: 0.0, green: 0.94, blue: 1.0))
-                            }
-                            .padding(14)
-                            .background(Color.white.opacity(0.06))
-                            .cornerRadius(12)
-                        }
-                        
-                        // Section 3: Connection Info & Server Naming
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("STREAM SERVER STATUS")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(Color(red: 0.0, green: 0.94, blue: 1.0))
-                            
-                            VStack(spacing: 8) {
-                                HStack {
-                                    Text("Transport Protocol")
-                                        .foregroundColor(.gray)
-                                    Spacer()
-                                    Text("USB usbmuxd / WiFi Bonjour")
-                                        .foregroundColor(.white)
-                                        .bold()
-                                }
-                                Divider().background(Color.white.opacity(0.1))
-                                HStack {
-                                    Text("USB Port")
-                                        .foregroundColor(.gray)
-                                    Spacer()
-                                    Text("50000")
-                                        .font(.system(size: 13, design: .monospaced))
-                                        .foregroundColor(Color(red: 0.0, green: 0.94, blue: 1.0))
-                                        .bold()
-                                }
-                                Divider().background(Color.white.opacity(0.1))
-                                HStack {
-                                    Text("Zero-Copy Pipeline")
-                                        .foregroundColor(.gray)
-                                    Spacer()
-                                    Text("VideoToolbox H.264 HW")
-                                        .foregroundColor(.green)
-                                        .bold()
-                                }
-                            }
-                            .font(.system(size: 13))
-                            .padding(14)
-                            .background(Color.white.opacity(0.06))
-                            .cornerRadius(12)
-                        }
+                        resolutionSection
+                        fpsSection
+                        serverStatusSection
                     }
                     .padding(20)
                 }
             }
             .navigationBarTitle("MiCam Pro Studio Settings", displayMode: .inline)
-            .navigationBarItems(trailing: Button(action: {
+            .navigationBarItems(trailing: Button("Done") {
                 presentationMode.wrappedValue.dismiss()
-            }) {
-                Text("Done")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(Color(red: 0.0, green: 0.94, blue: 1.0))
             })
         }
-        .accentColor(Color(red: 0.0, green: 0.94, blue: 1.0))
+    }
+    
+    private var resolutionSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("STREAM RESOLUTION")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(Color(red: 0.0, green: 0.94, blue: 1.0))
+            
+            ForEach(cameraManager.availableFormats, id: \.id) { fmt in
+                formatRow(for: fmt)
+            }
+        }
+    }
+    
+    private func formatRow(for fmt: CameraFormatDescriptor) -> some View {
+        let isSelected = cameraManager.currentFormat?.id == fmt.id
+        return Button(action: {
+            cameraManager.selectFormat(fmt, fps: selectedFps)
+        }) {
+            HStack {
+                Text("\(fmt.width) x \(fmt.height)")
+                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white)
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(Color(red: 0.0, green: 0.94, blue: 1.0))
+                }
+            }
+            .padding(14)
+            .background(Color.white.opacity(0.06))
+            .cornerRadius(12)
+        }
+    }
+    
+    private var fpsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("TARGET FPS")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(Color(red: 0.0, green: 0.94, blue: 1.0))
+            
+            HStack(spacing: 12) {
+                ForEach([24.0, 30.0, 60.0, 120.0], id: \.self) { fps in
+                    fpsButton(fps: fps)
+                }
+            }
+        }
+    }
+    
+    private func fpsButton(fps: Double) -> some View {
+        let isSelected = selectedFps == fps
+        return Button(action: {
+            selectedFps = fps
+            if let currentFmt = cameraManager.currentFormat {
+                cameraManager.selectFormat(currentFmt, fps: selectedFps)
+            }
+        }) {
+            Text("\(Int(fps)) FPS")
+                .font(.system(size: 13, weight: .bold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(isSelected ? Color(red: 0.0, green: 0.94, blue: 1.0) : Color.white.opacity(0.08))
+                .foregroundColor(isSelected ? .black : .white)
+                .cornerRadius(10)
+        }
+    }
+    
+    private var serverStatusSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("STREAM SERVER STATUS")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(Color(red: 0.0, green: 0.94, blue: 1.0))
+            
+            VStack(spacing: 8) {
+                HStack {
+                    Text("Transport")
+                        .foregroundColor(.gray)
+                    Spacer()
+                    Text("USB usbmuxd / WiFi")
+                        .foregroundColor(.white)
+                        .bold()
+                }
+                HStack {
+                    Text("Port")
+                        .foregroundColor(.gray)
+                    Spacer()
+                    Text("50000")
+                        .foregroundColor(Color(red: 0.0, green: 0.94, blue: 1.0))
+                        .bold()
+                }
+            }
+            .font(.system(size: 13))
+            .padding(14)
+            .background(Color.white.opacity(0.06))
+            .cornerRadius(12)
+        }
     }
 }
 
