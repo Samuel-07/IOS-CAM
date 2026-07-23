@@ -60,7 +60,7 @@ public class VideoEncoder {
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: bitrate as CFNumber)
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: fps as CFNumber)
         
-        VTCompressionSessionPrepareForFrames(session)
+        VTCompressionSessionPrepareToEncodeFrames(session)
         print("[VideoEncoder] Compression Session Initialized \(width)x\(height) @ \(fps) FPS, Bitrate: \(bitrate)")
     }
     
