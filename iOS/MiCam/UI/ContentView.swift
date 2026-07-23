@@ -276,15 +276,26 @@ struct SettingsSheetView: View {
     }
     
     private var fpsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        // Only offers FPS values the currently selected format actually supports - picking an
+        // unsupported rate used to crash the app (AVFoundation raises an uncatchable exception
+        // when activeVideoMinFrameDuration/MaxFrameDuration falls outside the active format's
+        // own videoSupportedFrameRateRanges).
+        let options = cameraManager.currentFormat.map { cameraManager.availableFpsOptions(for: $0) } ?? [24.0, 30.0]
+
+        return VStack(alignment: .leading, spacing: 10) {
             Text("TARGET FPS")
                 .font(.system(size: 11, weight: .bold))
                 .foregroundColor(Color(red: 0.0, green: 0.94, blue: 1.0))
-            
+
             HStack(spacing: 12) {
-                ForEach([24.0, 30.0, 60.0, 120.0], id: \.self) { fps in
+                ForEach(options, id: \.self) { fps in
                     fpsButton(fps: fps)
                 }
+            }
+        }
+        .onAppear {
+            if let firstOption = options.first, !options.contains(selectedFps) {
+                selectedFps = firstOption
             }
         }
     }

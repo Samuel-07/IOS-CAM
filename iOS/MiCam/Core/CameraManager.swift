@@ -154,15 +154,14 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
         }
     }
     
-    // Filter formats so ONLY relevant video broadcast resolutions appear (4K, 2K, 1080p, 720p, 1024x768, 640x480)
+    // Filter formats so ONLY the top 5 most-used broadcast resolutions appear (4K, 2K, 1080p, 720p, 480p)
     private func populateFormats(for device: AVCaptureDevice) {
         let targetResolutions: [(width: Int32, height: Int32)] = [
             (3840, 2160), // 4K Ultra HD
             (2560, 1440), // 2K Quad HD
             (1920, 1080), // 1080p Full HD
             (1280, 720),  // 720p HD
-            (1024, 768),  // XGA 4:3
-            (640, 480)    // VGA 4:3
+            (640, 480)    // 480p
         ]
         
         var formatMap: [String: CameraFormatDescriptor] = [:]
@@ -210,7 +209,7 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
             }
         }
         
-        // Guarantee all standard broadcast resolutions (4K, 2K, 1080p, 720p, 1024x768, 640x480) are represented
+        // Guarantee all 5 target resolutions (4K, 2K, 1080p, 720p, 480p) are represented
         if let fallbackFormat = device.formats.first {
             for target in targetResolutions {
                 let resKey = "\(target.width)x\(target.height)"
@@ -241,26 +240,53 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
     public func configureFormat(_ formatDesc: CameraFormatDescriptor, targetFps: Double) {
         captureQueue.async { [weak self] in
             guard let self = self, let device = self.currentDevice?.device else { return }
-            
+
+            // AVFoundation raises an uncatchable NSException (not a Swift `Error`) if you set
+            // activeVideoMin/MaxFrameDuration outside what THIS SPECIFIC format actually
+            // supports - do/catch here does nothing to stop that crash. The UI's FPS list is
+            // built from this same format's ranges (see availableFpsOptions), but clamp again
+            // here as a hard guarantee against ever handing AVFoundation an invalid value.
+            let ranges = formatDesc.format.videoSupportedFrameRateRanges
+            guard let matchingRange = ranges.first(where: { targetFps >= $0.minFrameRate && targetFps <= $0.maxFrameRate })
+                ?? ranges.max(by: { $0.maxFrameRate < $1.maxFrameRate }) else {
+                print("[CameraManager] Format \(formatDesc.width)x\(formatDesc.height) has no supported frame rate ranges")
+                return
+            }
+            let clampedFps = min(max(targetFps, matchingRange.minFrameRate), matchingRange.maxFrameRate)
+
             do {
                 try device.lockForConfiguration()
                 device.activeFormat = formatDesc.format
-                
-                let frameDuration = CMTime(value: 1, timescale: CMTimeScale(targetFps))
+
+                let frameDuration = CMTime(value: 1, timescale: CMTimeScale(clampedFps))
                 device.activeVideoMinFrameDuration = frameDuration
                 device.activeVideoMaxFrameDuration = frameDuration
-                
+
                 device.unlockForConfiguration()
-                
+
                 DispatchQueue.main.async {
                     self.currentFormat = formatDesc
-                    self.currentFps = targetFps
+                    self.currentFps = clampedFps
                 }
-                print("[CameraManager] Configured format: \(formatDesc.width)x\(formatDesc.height) @ \(targetFps) FPS")
+                print("[CameraManager] Configured format: \(formatDesc.width)x\(formatDesc.height) @ \(clampedFps) FPS")
             } catch {
                 print("[CameraManager] Failed to lock device for configuration: \(error)")
             }
         }
+    }
+
+    // Real, per-format FPS choices (not a hardcoded list) - only rates this exact format
+    // supports, so the Settings UI can never offer a value that would crash configureFormat.
+    public func availableFpsOptions(for formatDesc: CameraFormatDescriptor) -> [Double] {
+        let standardRates: [Double] = [24, 30, 60, 120, 240]
+        let ranges = formatDesc.format.videoSupportedFrameRateRanges
+        let supported = standardRates.filter { rate in
+            ranges.contains { rate >= $0.minFrameRate && rate <= $0.maxFrameRate }
+        }
+        if !supported.isEmpty { return supported }
+        // No standard rate lands inside a supported range (unusual format) - fall back to the
+        // format's own max, so there's always at least one valid, non-crashing choice.
+        return ranges.map { $0.maxFrameRate }.max().map { [$0] } ?? [30]
     }
     
     // Real-time Controls (Focus, Exposure, White Balance, Torch, Zoom)
