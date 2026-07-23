@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Product Id="*" Name="MiCam Suite" Language="1033" Version="1.0.0.0" Manufacturer="MiCam Studio" UpgradeCode="a87b1c3d-2e4f-5678-90ab-cdef12345678">
+        <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
+        <MediaTemplate EmbedCab="yes" />
+
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="ProgramFilesFolder">
+                <Directory Id="INSTALLFOLDER" Name="MiCam">
+                    <Component Id="MainExecutable" Guid="11111111-2222-3333-4444-555555555555">
+                        <File Id="MiCamDesktopExe" Source="$(var.Desktop.TargetDir)\MiCamDesktop.exe" KeyPath="yes" />
+                    </Component>
+                    <Component Id="VirtualCameraDriver" Guid="66666666-7777-8888-9999-000000000000">
+                        <File Id="VirtualCameraDll" Source="$(var.VirtualCamera.TargetDir)\MiCamVirtualCamera.dll" KeyPath="yes" />
+                    </Component>
+                </Directory>
+            </Directory>
+            <Directory Id="ProgramFiles64Folder">
+                <Directory Id="ObsStudioFolder" Name="obs-studio">
+                    <Directory Id="ObsPluginsFolder" Name="obs-plugins">
+                        <Directory Id="ObsPlugins64Folder" Name="64bit">
+                            <Component Id="ObsPlugin" Guid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee">
+                                <File Id="ObsPluginDll" Source="$(var.OBSPlugin.TargetDir)\micam-obs-plugin.dll" KeyPath="yes" />
+                            </Component>
+                        </Directory>
+                    </Directory>
+                </Directory>
+            </Directory>
+        </Directory>
+
+        <Feature Id="MainFeature" Title="MiCam Complete Suite" Level="1">
+            <ComponentRef Id="MainExecutable" />
+            <ComponentRef Id="VirtualCameraDriver" />
+            <ComponentRef Id="ObsPlugin" />
+        </Feature>
+    </Product>
+</Wix>

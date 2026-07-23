@@ -1,0 +1,13 @@
+{
+  "project": "MiCam",
+  "platform": "ios",
+  "ios": {
+    "path": "MiCam",
+    "scheme": "MiCam",
+    "signing": false
+  },
+  "mobai": {
+    "url": "http://localhost:8686",
+    "device_id": ""
+  }
+}

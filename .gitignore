@@ -1,0 +1,17 @@
+# Build directories
+build/
+dist/
+bin/
+obj/
+.vs/
+*.user
+*.suo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Xcode & iOS
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
