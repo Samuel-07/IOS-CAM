@@ -55,8 +55,9 @@ jobs:
           rm -rf build/Payload build/*.ipa
           mkdir -p build/Payload/MiCam.app
           
-          # Copy Info.plist
+          # Copy Info.plist and AppIcon
           cp iOS/MiCam/Info.plist build/Payload/MiCam.app/Info.plist
+          cp assets/AppIcon.png build/Payload/MiCam.app/AppIcon.png
 
           # Compile Swift source files directly into native ARM64 Mach-O executable
           SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)

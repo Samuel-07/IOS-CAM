@@ -21,6 +21,7 @@ add_executable(MiCamDesktop WIN32
     Desktop/src/UIWindow.cpp
     Desktop/src/DeviceManager.cpp
     Desktop/src/SharedMemoryStream.cpp
+    Desktop/src/resource.rc
 )
 target_link_libraries(MiCamDesktop PRIVATE ws2_32 Ole32 User32 Gdi32)
 
