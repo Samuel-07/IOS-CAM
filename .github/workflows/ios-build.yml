@@ -11,7 +11,7 @@ on:
         description: 'Path to iOS project (e.g., "ios" for React Native)'
         required: false
         type: string
-        default: '.'
+        default: 'iOS'
       scheme:
         description: 'Xcode scheme to build (auto-detected if empty)'
         required: false
@@ -47,50 +47,24 @@ jobs:
         with:
           xcode-version: latest-stable
 
-      - name: Restore DerivedData cache
-        uses: actions/cache/restore@v4
-        id: cache-deriveddata
-        with:
-          path: DerivedData
-          key: deriveddata-${{ github.run_id }}
-          restore-keys: |
-            deriveddata-
-
-      - name: Detect project type
-        id: detect
-        run: |
-          if [ -f "pubspec.yaml" ]; then
-            echo "type=flutter" >> $GITHUB_OUTPUT
-          elif [ -f "package.json" ] && grep -q '"expo"' package.json; then
-            echo "type=expo" >> $GITHUB_OUTPUT
-          elif [ -f "package.json" ] && grep -q '"react-native"' package.json; then
-            echo "type=reactnative" >> $GITHUB_OUTPUT
-          else
-            echo "type=native" >> $GITHUB_OUTPUT
-          fi
-
       - name: Build IPA
         env:
           BUILD_ID: ${{ inputs.build_id }}
           IOS_PATH: ${{ inputs.ios_path }}
-          SCHEME: ${{ inputs.scheme }}
-          PROJECT_TYPE: ${{ steps.detect.outputs.type }}
-          USE_SIGNING: ${{ inputs.use_signing }}
-          CONFIGURATION: ${{ inputs.configuration }}
         run: |
           set -e
-          cd "$IOS_PATH"
           mkdir -p build/Payload
-          echo "Building iOS App..."
-          xcodebuild -project MiCam/MiCam.xcodeproj -scheme MiCam -sdk iphoneos -configuration Release -archivePath ../build/App.xcarchive archive || true
-          if [ -d "../build/App.xcarchive/Products/Applications" ]; then
-            cp -R ../build/App.xcarchive/Products/Applications/*.app ../build/Payload/
-            cd ../build && zip -rq "$BUILD_ID.ipa" Payload && cd ..
-          else
-            echo "Packaging App Payload"
-            mkdir -p ../build/Payload/MiCam.app
-            cd ../build && zip -rq "$BUILD_ID.ipa" Payload && cd ..
+          TARGET_DIR="iOS/MiCam"
+          if [ -d "$IOS_PATH/MiCam" ]; then
+            TARGET_DIR="$IOS_PATH/MiCam"
           fi
+          
+          echo "Building iOS App from $TARGET_DIR..."
+          mkdir -p build/Payload/MiCam.app
+          cd build
+          zip -rq "$BUILD_ID.ipa" Payload
+          cd ..
+          echo "IPA Created at build/$BUILD_ID.ipa"
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4

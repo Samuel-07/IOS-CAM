@@ -6,7 +6,7 @@
     "repo": "IOS-CAM"
   },
   "ios": {
-    "path": "iOS/MiCam",
+    "path": "iOS",
     "scheme": "MiCam",
     "signing": false
   },
