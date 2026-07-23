@@ -142,14 +142,25 @@ std::vector<MdnsService> MdnsBrowser::Discover(const std::string& serviceType, u
     BOOL reuse = TRUE;
     setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse));
 
+    // Bind to the mDNS port itself (not an ephemeral one) and join the multicast group. The
+    // outgoing query sets the "QU" bit asking for a direct unicast reply, but not every mDNS
+    // responder honors that - some always multicast their answer back to 224.0.0.251:5353
+    // regardless. Listening only on an ephemeral port would silently miss those replies, which
+    // is almost certainly why WiFi discovery was finding 0 services despite the phone actually
+    // advertising - this listens for both reply styles.
     sockaddr_in local{};
     local.sin_family = AF_INET;
     local.sin_addr.s_addr = htonl(INADDR_ANY);
-    local.sin_port = 0; // ephemeral - we set the QU (unicast-response) bit so replies target this
+    local.sin_port = htons(kMdnsPort);
     if (bind(s, (SOCKADDR*)&local, sizeof(local)) == SOCKET_ERROR) {
         closesocket(s);
         return results;
     }
+
+    ip_mreq mreq{};
+    inet_pton(AF_INET, kMdnsMulticastAddr, &mreq.imr_multiaddr);
+    mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+    setsockopt(s, IPPROTO_IP, IP_ADD_MEMBERSHIP, (const char*)&mreq, sizeof(mreq));
 
     // Build the DNS query: 1 question, QTYPE=PTR, QCLASS=IN with the top "QU" bit set so
     // compliant mDNS responders (including Apple's on iOS) unicast the reply directly back

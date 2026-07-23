@@ -1,11 +1,41 @@
 #include "DeviceRegistry.h"
 #include <cstring>
 #include <algorithm>
+#include <sddl.h>
+
+#pragma comment(lib, "advapi32.lib")
+
+namespace {
+// MiCamDesktop.exe and obs64.exe are unrelated processes that may end up running at different
+// Windows integrity levels (e.g. if the OBS install flow ever elevated the Desktop app to
+// Administrator). Kernel objects created with a NULL security descriptor inherit the creator's
+// integrity level, and Mandatory Integrity Control then silently denies a lower-integrity
+// process's OpenFileMapping/OpenMutex - the reader just gets NULL back with no obvious error,
+// which looks exactly like "the writer never published anything". Granting full access to
+// Everyone at Low integrity makes this registry readable/writable regardless of which process
+// happens to be elevated.
+struct PermissiveSecurityAttributes {
+    SECURITY_ATTRIBUTES sa{};
+    PSECURITY_DESCRIPTOR psd{ nullptr };
+
+    PermissiveSecurityAttributes() {
+        ConvertStringSecurityDescriptorToSecurityDescriptorA(
+            "D:(A;;GA;;;WD)S:(ML;;NW;;;LW)", SDDL_REVISION_1, &psd, NULL);
+        sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+        sa.lpSecurityDescriptor = psd;
+        sa.bInheritHandle = FALSE;
+    }
+    ~PermissiveSecurityAttributes() {
+        if (psd) LocalFree(psd);
+    }
+};
+} // namespace
 
 DeviceRegistryWriter::DeviceRegistryWriter() {
-    m_hMutex = CreateMutexA(NULL, FALSE, "Global\\MiCam_DeviceRegistry_Mutex");
+    PermissiveSecurityAttributes sa;
+    m_hMutex = CreateMutexA(sa.psd ? &sa.sa : NULL, FALSE, "Global\\MiCam_DeviceRegistry_Mutex");
     m_hMapFile = CreateFileMappingA(
-        INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, sizeof(DeviceRegistryBlock), kDeviceRegistryMapName);
+        INVALID_HANDLE_VALUE, sa.psd ? &sa.sa : NULL, PAGE_READWRITE, 0, sizeof(DeviceRegistryBlock), kDeviceRegistryMapName);
     if (m_hMapFile) {
         m_pBuffer = MapViewOfFile(m_hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(DeviceRegistryBlock));
     }

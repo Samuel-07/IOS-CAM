@@ -38,6 +38,11 @@ bool MainWindowUI::CreateAndShow(int nCmdShow) {
     // high-DPI displays, so click hit-testing can't drift from what's on screen.
     SetProcessDPIAware();
 
+    // Resource 101 in resource.rc (assets/micam_icon.ico) was compiled into the exe but never
+    // actually loaded/assigned - Windows fell back to a generic blank icon for the taskbar
+    // button and Alt-Tab entry.
+    HICON hAppIcon = LoadIconW(m_hInstance, MAKEINTRESOURCEW(101));
+
     WNDCLASSEXW wc = { sizeof(WNDCLASSEXW) };
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = MainWindowUI::WindowProc;
@@ -45,6 +50,8 @@ bool MainWindowUI::CreateAndShow(int nCmdShow) {
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
     wc.lpszClassName = L"MiCamProStudioWindowClass";
+    wc.hIcon = hAppIcon;
+    wc.hIconSm = hAppIcon;
 
     RegisterClassExW(&wc);
 

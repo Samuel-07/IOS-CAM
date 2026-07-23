@@ -45,7 +45,7 @@ public protocol CameraManagerDelegate: AnyObject {
     func cameraManager(_ manager: CameraManager, didOutput pixelBuffer: CVPixelBuffer, presentationTimeStamp: CMTime)
 }
 
-public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate, VideoEncoderDelegate {
+public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate, VideoEncoderDelegate, NetworkStreamerDelegate {
     public static let shared = CameraManager()
 
     public weak var delegate: CameraManagerDelegate?
@@ -70,6 +70,7 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
     override init() {
         super.init()
         videoEncoder.delegate = self
+        NetworkStreamer.shared.delegate = self
         discoverDevices()
     }
     
@@ -410,5 +411,29 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
             naluData: data, isKeyFrame: isKeyFrame, width: width, height: height,
             fps: fps, codec: .h264, timestampUs: timestampUs
         )
+    }
+
+    // NetworkStreamerDelegate - applies commands sent remotely from the Windows Desktop app
+    // (lens switch, torch, zoom). Previously nothing set NetworkStreamer.shared.delegate at
+    // all, so these packets arrived and were parsed correctly but silently discarded - every
+    // control sent from the Desktop app's "OPTICA DE CAMARA" panel had zero effect on the phone.
+    // Resolution/FPS are intentionally NOT applied here: the Desktop app currently hardcodes
+    // 1920x1080@60 on every lens click regardless of what the user has actually picked in the
+    // Settings sheet on the phone, so honoring it would silently stomp the user's own choice.
+    public func streamer(_ streamer: NetworkStreamer, didReceiveControlCommand command: MiCamControlCommand) {
+        if let lens = MiCamCameraLens(rawValue: command.lens),
+           let match = availableDevices.first(where: { $0.lensType == lens }),
+           match.id != currentDevice?.id {
+            selectDevice(match)
+        }
+        setTorch(enabled: command.torchEnabled != 0)
+        if command.zoomFactor > 0 {
+            setZoom(factor: CGFloat(command.zoomFactor))
+        }
+    }
+
+    public func streamer(_ streamer: NetworkStreamer, clientStateChanged isConnected: Bool, connectionType: String) {
+        // No CameraManager-side action needed - NetworkStreamer already publishes this via its
+        // own @Published properties for the UI to observe.
     }
 }
