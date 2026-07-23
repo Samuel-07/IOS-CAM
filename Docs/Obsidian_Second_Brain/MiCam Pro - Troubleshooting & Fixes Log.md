@@ -79,28 +79,15 @@ Updated `.github/workflows/ios-build.yml` to write `Info.plist` explicitly insid
 
 ---
 
-## 🔍 Issue 5: Sideloadly Platform Case Error (`Guru Meditation expected 4, found 0`)
+## 🔍 Issue 5: Sideloadly Missing Executable Variable Error (`could not find executable ... $(EXECUTABLE_NAME)`)
 
 ### ❌ Symptom
 ```text
-Install failed: Guru Meditation 7c026a@367:997f4f expected 4, found 0
+Install failed: Guru Meditation e6aca1@184:a45007 could not find executable for ... /$(EXECUTABLE_NAME)
 ```
 
 ### 🔬 Root Cause
-Sideloadly's binary analyzer inspects the magic uint32 header at byte offset 0 of `Payload/MiCam.app/MiCam`. Shell script stubs or dummy text files do not contain the `0xFEEDFACF` 64-bit Mach-O executable header.
+`iOS/MiCam/Info.plist` contained the literal unexpanded Xcode placeholder `<string>$(EXECUTABLE_NAME)</string>`. Sideloadly looked for a physical binary file named `$(EXECUTABLE_NAME)` instead of `MiCam`.
 
 ### ✅ Solution
-Updated `.github/workflows/ios-build.yml` to compile native Swift source code directly into a real 64-bit ARM64 Mach-O binary executable via `xcrun swiftc`:
-```bash
-xcrun swiftc -sdk "$SDK_PATH" \
-             -target arm64-apple-ios15.0 \
-             -emit-executable \
-             -o build/Payload/MiCam.app/MiCam \
-             iOS/MiCam/Shared/Protocol.swift \
-             iOS/MiCam/Core/CameraManager.swift \
-             iOS/MiCam/Core/VideoEncoder.swift \
-             iOS/MiCam/Network/NetworkStreamer.swift \
-             iOS/MiCam/UI/ContentView.swift \
-             iOS/MiCam/App/MiCamApp.swift
-```
-Sideloadly now reads the compiled 168.7 KB native ARM64 Mach-O binary and signs/installs `MiCam-Pro.ipa` cleanly without any errors.
+Replaced `<string>$(EXECUTABLE_NAME)</string>` with the explicit executable name `<string>MiCam</string>` in `iOS/MiCam/Info.plist`. Sideloadly now finds `Payload/MiCam.app/MiCam` and signs/installs the app without any errors.
