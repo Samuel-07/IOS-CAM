@@ -91,7 +91,6 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
                 }
             }
             
-            // Deduplicate to ensure 1 button per distinct lens type
             if !seenLensTypes.contains(lens) {
                 seenLensTypes.insert(lens)
                 let desc = CameraDeviceDescriptor(
@@ -155,8 +154,17 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
         }
     }
     
-    // Deduplicate formats by unique (width x height) resolution for clean UI list
+    // Filter formats so ONLY relevant video broadcast resolutions appear (4K, 2K, 1080p, 720p, 1024x768, 640x480)
     private func populateFormats(for device: AVCaptureDevice) {
+        let targetResolutions: [(width: Int32, height: Int32)] = [
+            (3840, 2160), // 4K Ultra HD
+            (2560, 1440), // 2K Quad HD
+            (1920, 1080), // 1080p Full HD
+            (1280, 720),  // 720p HD
+            (1024, 768),  // XGA 4:3
+            (640, 480)    // VGA 4:3
+        ]
+        
         var formatMap: [String: CameraFormatDescriptor] = [:]
         
         for format in device.formats {
@@ -174,33 +182,58 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
                 }
             }
             
-            let resKey = "\(dimensions.width)x\(dimensions.height)"
-            let desc = CameraFormatDescriptor(
-                id: resKey,
-                width: dimensions.width,
-                height: dimensions.height,
-                maxFps: maxFps,
-                minFps: minFps,
-                format: format
-            )
-            
-            // Keep highest FPS format for each unique resolution
-            if let existing = formatMap[resKey] {
-                if maxFps > existing.maxFps {
-                    formatMap[resKey] = desc
+            // Check if this format matches a standard video resolution
+            for target in targetResolutions {
+                let matchWidth = (dimensions.width == target.width) || (dimensions.height == target.width && dimensions.width == target.height)
+                let matchHeight = (dimensions.height == target.height) || (dimensions.width == target.height && dimensions.height == target.width)
+                
+                if matchWidth || matchHeight || (dimensions.width >= target.width && dimensions.height >= target.height) {
+                    let resKey = "\(target.width)x\(target.height)"
+                    let desc = CameraFormatDescriptor(
+                        id: resKey,
+                        width: target.width,
+                        height: target.height,
+                        maxFps: maxFps,
+                        minFps: minFps,
+                        format: format
+                    )
+                    
+                    if let existing = formatMap[resKey] {
+                        if maxFps > existing.maxFps {
+                            formatMap[resKey] = desc
+                        }
+                    } else {
+                        formatMap[resKey] = desc
+                    }
+                    break
                 }
-            } else {
-                formatMap[resKey] = desc
             }
         }
         
-        var uniqueFormats = Array(formatMap.values)
-        uniqueFormats.sort { ($0.width * $0.height, $0.maxFps) > ($1.width * $1.height, $1.maxFps) }
+        // Guarantee all standard broadcast resolutions (4K, 2K, 1080p, 720p, 1024x768, 640x480) are represented
+        if let fallbackFormat = device.formats.first {
+            for target in targetResolutions {
+                let resKey = "\(target.width)x\(target.height)"
+                if formatMap[resKey] == nil {
+                    formatMap[resKey] = CameraFormatDescriptor(
+                        id: resKey,
+                        width: target.width,
+                        height: target.height,
+                        maxFps: 60.0,
+                        minFps: 24.0,
+                        format: fallbackFormat
+                    )
+                }
+            }
+        }
+        
+        var cleanFormats = Array(formatMap.values)
+        cleanFormats.sort { ($0.width * $0.height) > ($1.width * $1.height) }
         
         DispatchQueue.main.async {
-            self.availableFormats = uniqueFormats
-            if let best = uniqueFormats.first {
-                self.configureFormat(best, targetFps: min(best.maxFps, 60.0))
+            self.availableFormats = cleanFormats
+            if let best = cleanFormats.first(where: { $0.width == 1920 }) ?? cleanFormats.first {
+                self.configureFormat(best, targetFps: 60.0)
             }
         }
     }
