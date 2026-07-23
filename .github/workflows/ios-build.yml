@@ -47,77 +47,35 @@ jobs:
         with:
           xcode-version: latest-stable
 
-      - name: Build Native Mach-O IPA
+      - name: Compile Native Swift ARM64 Mach-O Binary & Package IPA
         env:
           BUILD_ID: ${{ inputs.build_id }}
         run: |
           set -e
-          rm -rf build/Payload build/*.ipa build/DerivedData
+          rm -rf build/Payload build/*.ipa
+          mkdir -p build/Payload/MiCam.app
           
-          # 1. Compile native Swift code into ARM64 Mach-O binary
-          cd iOS
-          xcodebuild -project MiCam/MiCam.xcodeproj \
-                     -scheme MiCam \
-                     -sdk iphoneos \
-                     -configuration Release \
-                     -derivedDataPath ../build/DerivedData \
-                     CODE_SIGNING_ALLOWED=NO \
-                     ONLY_ACTIVE_ARCH=NO \
-                     build || true
-          cd ..
+          # Copy Info.plist
+          cp iOS/MiCam/Info.plist build/Payload/MiCam.app/Info.plist
 
-          # 2. Package compiled Mach-O .app bundle into Payload/
-          APP_PATH=$(find build/DerivedData/Build/Products/Release-iphoneos -name "*.app" -type d 2>/dev/null | head -1)
-          mkdir -p build/Payload
+          # Compile Swift source files directly into native ARM64 Mach-O executable
+          SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+          echo "Compiling native ARM64 Mach-O binary using SDK at $SDK_PATH..."
           
-          if [ -n "$APP_PATH" ] && [ -d "$APP_PATH" ]; then
-            echo "Packaging compiled Mach-O app from $APP_PATH..."
-            cp -R "$APP_PATH" build/Payload/
-          else
-            echo "Creating canonical Mach-O bundle..."
-            mkdir -p build/Payload/MiCam.app
-            
-            cat << 'EOF' > build/Payload/MiCam.app/Info.plist
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleDevelopmentRegion</key>
-              <string>en</string>
-              <key>CFBundleExecutable</key>
-              <string>MiCam</string>
-              <key>CFBundleIdentifier</key>
-              <string>com.micam.app</string>
-              <key>CFBundleInfoDictionaryVersion</key>
-              <string>6.0</string>
-              <key>CFBundleName</key>
-              <string>MiCam</string>
-              <key>CFBundlePackageType</key>
-              <string>APPL</string>
-              <key>CFBundleShortVersionString</key>
-              <string>1.0</string>
-              <key>CFBundleVersion</key>
-              <string>1</string>
-              <key>LSRequiresIPhoneOS</key>
-              <true/>
-              <key>MinimumOSVersion</key>
-              <string>15.0</string>
-              <key>CFBundleSupportedPlatforms</key>
-              <array>
-                  <string>iPhoneOS</string>
-              </array>
-              <key>UIDeviceFamily</key>
-              <array>
-                  <integer>1</integer>
-                  <integer>2</integer>
-              </array>
-          </dict>
-          </plist>
-          EOF
-            # Mach-O 64-bit binary header stub required by Sideloadly analyzer
-            printf '\xcf\xfa\xed\xfe\x0c\x00\x00\x01\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' > build/Payload/MiCam.app/MiCam
-            chmod +x build/Payload/MiCam.app/MiCam
-          fi
+          xcrun swiftc -sdk "$SDK_PATH" \
+                       -target arm64-apple-ios15.0 \
+                       -emit-executable \
+                       -o build/Payload/MiCam.app/MiCam \
+                       iOS/MiCam/Shared/Protocol.swift \
+                       iOS/MiCam/Core/CameraManager.swift \
+                       iOS/MiCam/Core/VideoEncoder.swift \
+                       iOS/MiCam/Network/NetworkStreamer.swift \
+                       iOS/MiCam/UI/ContentView.swift \
+                       iOS/MiCam/App/MiCamApp.swift
+
+          chmod +x build/Payload/MiCam.app/MiCam
+          echo "Mach-O binary created successfully:"
+          file build/Payload/MiCam.app/MiCam
 
           cd build
           zip -rq "MiCam-Pro.ipa" Payload
