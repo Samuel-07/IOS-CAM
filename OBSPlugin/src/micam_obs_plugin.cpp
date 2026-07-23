@@ -17,7 +17,7 @@ struct micam_source_data {
 };
 
 static const char* micam_get_name(void* unused) {
-    return "MiCam Camera Source";
+    return "MiCam OBS";
 }
 
 static void* micam_create(obs_data_t* settings, obs_source_t* source) {
@@ -33,8 +33,10 @@ static void* micam_create(obs_data_t* settings, obs_source_t* source) {
 
 static void micam_destroy(void* data) {
     micam_source_data* context = static_cast<micam_source_data*>(data);
-    delete context->reader;
-    delete context;
+    if (context) {
+        delete context->reader;
+        delete context;
+    }
 }
 
 static void micam_video_render(void* data, gs_effect_t* effect) {
@@ -61,31 +63,31 @@ static obs_properties_t* micam_get_properties(void* data) {
     obs_property_t* device_list = obs_properties_add_list(
         props,
         "device_id",
-        "Select iPhone Device",
+        "Select iPhone Device Stream",
         OBS_COMBO_TYPE_LIST,
         OBS_COMBO_FORMAT_STRING
     );
     
-    obs_property_list_add_string(device_list, "iPhone 1 (USB)", "Global\\MiCam_Stream_1");
-    obs_property_list_add_string(device_list, "iPhone 2 (WiFi)", "Global\\MiCam_Stream_2");
+    obs_property_list_add_string(device_list, "iPhone 1 (USB / Port 50000)", "Global\\MiCam_Stream_1");
+    obs_property_list_add_string(device_list, "iPhone 2 (WiFi / Port 50001)", "Global\\MiCam_Stream_2");
     
     obs_property_t* lens_list = obs_properties_add_list(
         props,
         "camera_lens",
-        "Camera Lens",
+        "Camera Optics Lens",
         OBS_COMBO_TYPE_LIST,
         OBS_COMBO_FORMAT_INT
     );
-    obs_property_list_add_int(lens_list, "Main Wide Angle", 0);
-    obs_property_list_add_int(lens_list, "Ultra Wide", 1);
-    obs_property_list_add_int(lens_list, "Telephoto", 2);
+    obs_property_list_add_int(lens_list, "Main Wide Angle (1x)", 0);
+    obs_property_list_add_int(lens_list, "Ultra Wide (0.5x)", 1);
+    obs_property_list_add_int(lens_list, "Telephoto (3x)", 2);
     obs_property_list_add_int(lens_list, "Front Selfie", 3);
 
     return props;
 }
 
 static struct obs_source_info micam_source_info = {
-    .id             = "micam_source",
+    .id             = "micam_obs",
     .type           = OBS_SOURCE_TYPE_INPUT,
     .output_flags   = OBS_SOURCE_VIDEO | OBS_SOURCE_ASYNC_VIDEO,
     .get_name       = micam_get_name,
@@ -97,7 +99,7 @@ static struct obs_source_info micam_source_info = {
 
 bool obs_module_load(void) {
     obs_register_source(&micam_source_info);
-    blog(LOG_INFO, "[MiCam OBS Plugin] Loaded successfully.");
+    blog(LOG_INFO, "[MiCam OBS Plugin] Loaded successfully as 'MiCam OBS'.");
     return true;
 }
 

@@ -61,18 +61,13 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
         discoverDevices()
     }
     
-    // Dynamically discover all physical camera devices without hardcoded assumptions
+    // Discover physical camera devices with distinct single lens entries (0.5x, 1x, 3x, Front)
     public func discoverDevices() {
-        var deviceTypes: [AVCaptureDevice.DeviceType] = [
+        let deviceTypes: [AVCaptureDevice.DeviceType] = [
             .builtInWideAngleCamera,
             .builtInTelephotoCamera,
             .builtInUltraWideCamera
         ]
-        
-        if #available(iOS 13.0, *) {
-            deviceTypes.append(.builtInTripleCamera)
-            deviceTypes.append(.builtInDualWideCamera)
-        }
         
         let discoverySession = AVCaptureDevice.DiscoverySession(
             deviceTypes: deviceTypes,
@@ -81,6 +76,8 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
         )
         
         var descriptors: [CameraDeviceDescriptor] = []
+        var seenLensTypes = Set<MiCamCameraLens>()
+        
         for dev in discoverySession.devices {
             let lens: MiCamCameraLens
             if dev.position == .front {
@@ -94,14 +91,18 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
                 }
             }
             
-            let desc = CameraDeviceDescriptor(
-                id: dev.uniqueID,
-                name: dev.localizedName,
-                lensType: lens,
-                position: dev.position,
-                device: dev
-            )
-            descriptors.append(desc)
+            // Deduplicate to ensure 1 button per distinct lens type
+            if !seenLensTypes.contains(lens) {
+                seenLensTypes.insert(lens)
+                let desc = CameraDeviceDescriptor(
+                    id: dev.uniqueID,
+                    name: dev.localizedName,
+                    lensType: lens,
+                    position: dev.position,
+                    device: dev
+                )
+                descriptors.append(desc)
+            }
         }
         
         DispatchQueue.main.async {
@@ -113,44 +114,50 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
     }
     
     public func selectDevice(_ descriptor: CameraDeviceDescriptor) {
-        captureSession.beginConfiguration()
-        
-        if let currentInput = activeDeviceInput {
-            captureSession.removeInput(currentInput)
-        }
-        
-        do {
-            let newInput = try AVCaptureDeviceInput(device: descriptor.device)
-            if captureSession.canAddInput(newInput) {
-                captureSession.addInput(newInput)
-                activeDeviceInput = newInput
-                currentDevice = descriptor
-                
-                // Query dynamic formats for this device
-                populateFormats(for: descriptor.device)
-            }
-        } catch {
-            print("[CameraManager] Failed to create input for device \(descriptor.name): \(error)")
-        }
-        
-        if !captureSession.outputs.contains(videoDataOutput) {
-            videoDataOutput.alwaysDiscardsLateVideoFrames = true
-            videoDataOutput.videoSettings = [
-                kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)
-            ]
-            videoDataOutput.setSampleBufferDelegate(self, queue: captureQueue)
+        captureQueue.async { [weak self] in
+            guard let self = self else { return }
             
-            if captureSession.canAddOutput(videoDataOutput) {
-                captureSession.addOutput(videoDataOutput)
+            self.captureSession.beginConfiguration()
+            
+            if let currentInput = self.activeDeviceInput {
+                self.captureSession.removeInput(currentInput)
             }
+            
+            do {
+                let newInput = try AVCaptureDeviceInput(device: descriptor.device)
+                if self.captureSession.canAddInput(newInput) {
+                    self.captureSession.addInput(newInput)
+                    self.activeDeviceInput = newInput
+                    
+                    DispatchQueue.main.async {
+                        self.currentDevice = descriptor
+                    }
+                    
+                    self.populateFormats(for: descriptor.device)
+                }
+            } catch {
+                print("[CameraManager] Failed to create input for device \(descriptor.name): \(error)")
+            }
+            
+            if !self.captureSession.outputs.contains(self.videoDataOutput) {
+                self.videoDataOutput.alwaysDiscardsLateVideoFrames = true
+                self.videoDataOutput.videoSettings = [
+                    kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)
+                ]
+                self.videoDataOutput.setSampleBufferDelegate(self, queue: self.captureQueue)
+                
+                if self.captureSession.canAddOutput(self.videoDataOutput) {
+                    self.captureSession.addOutput(self.videoDataOutput)
+                }
+            }
+            
+            self.captureSession.commitConfiguration()
         }
-        
-        captureSession.commitConfiguration()
     }
     
-    // Interrogate formats directly from device to allow ANY resolution/FPS hardware allows (720p, 1080p, 4K, 60, 120, 240 fps)
+    // Deduplicate formats by unique (width x height) resolution for clean UI list
     private func populateFormats(for device: AVCaptureDevice) {
-        var formats: [CameraFormatDescriptor] = []
+        var formatMap: [String: CameraFormatDescriptor] = [:]
         
         for format in device.formats {
             let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
@@ -167,53 +174,63 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
                 }
             }
             
-            let id = "\(dimensions.width)x\(dimensions.height)@\(Int(maxFps))fps"
+            let resKey = "\(dimensions.width)x\(dimensions.height)"
             let desc = CameraFormatDescriptor(
-                id: id,
+                id: resKey,
                 width: dimensions.width,
                 height: dimensions.height,
                 maxFps: maxFps,
                 minFps: minFps,
                 format: format
             )
-            formats.append(desc)
+            
+            // Keep highest FPS format for each unique resolution
+            if let existing = formatMap[resKey] {
+                if maxFps > existing.maxFps {
+                    formatMap[resKey] = desc
+                }
+            } else {
+                formatMap[resKey] = desc
+            }
         }
         
-        // Sort descending by resolution and FPS
-        formats.sort { ($0.width * $0.height, $0.maxFps) > ($1.width * $1.height, $1.maxFps) }
+        var uniqueFormats = Array(formatMap.values)
+        uniqueFormats.sort { ($0.width * $0.height, $0.maxFps) > ($1.width * $1.height, $1.maxFps) }
         
         DispatchQueue.main.async {
-            self.availableFormats = formats
-            if let best = formats.first {
+            self.availableFormats = uniqueFormats
+            if let best = uniqueFormats.first {
                 self.configureFormat(best, targetFps: min(best.maxFps, 60.0))
             }
         }
     }
     
     public func configureFormat(_ formatDesc: CameraFormatDescriptor, targetFps: Double) {
-        guard let device = currentDevice?.device else { return }
-        
-        do {
-            try device.lockForConfiguration()
-            device.activeFormat = formatDesc.format
+        captureQueue.async { [weak self] in
+            guard let self = self, let device = self.currentDevice?.device else { return }
             
-            let frameDuration = CMTime(value: 1, timescale: CMTimeScale(targetFps))
-            device.activeVideoMinFrameDuration = frameDuration
-            device.activeVideoMaxFrameDuration = frameDuration
-            
-            device.unlockForConfiguration()
-            
-            DispatchQueue.main.async {
-                self.currentFormat = formatDesc
-                self.currentFps = targetFps
+            do {
+                try device.lockForConfiguration()
+                device.activeFormat = formatDesc.format
+                
+                let frameDuration = CMTime(value: 1, timescale: CMTimeScale(targetFps))
+                device.activeVideoMinFrameDuration = frameDuration
+                device.activeVideoMaxFrameDuration = frameDuration
+                
+                device.unlockForConfiguration()
+                
+                DispatchQueue.main.async {
+                    self.currentFormat = formatDesc
+                    self.currentFps = targetFps
+                }
+                print("[CameraManager] Configured format: \(formatDesc.width)x\(formatDesc.height) @ \(targetFps) FPS")
+            } catch {
+                print("[CameraManager] Failed to lock device for configuration: \(error)")
             }
-            print("[CameraManager] Configured format: \(formatDesc.width)x\(formatDesc.height) @ \(targetFps) FPS")
-        } catch {
-            print("[CameraManager] Failed to lock device for configuration: \(error)")
         }
     }
     
-    // Real-time Controls (Focus, Exposure, White Balance, Torch, Zoom, Stabilization)
+    // Real-time Controls (Focus, Exposure, White Balance, Torch, Zoom)
     public func setTorch(enabled: Bool) {
         guard let device = currentDevice?.device, device.hasTorch else { return }
         do {

@@ -1,5 +1,6 @@
 #include "UIWindow.h"
 #include <iostream>
+#include <shlobj.h>
 
 using namespace Gdiplus;
 
@@ -141,6 +142,32 @@ LRESULT MainWindowUI::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
                 }
                 InvalidateRect(hwnd, NULL, FALSE);
             }
+
+            // OBS Install Plugin Button Click
+            int obsBtnY = rc.bottom - 45;
+            if (y >= obsBtnY && y <= obsBtnY + 35) {
+                // Auto Install OBS Plugin DLL
+                BOOL copied = CopyFileW(
+                    L"build\\Release\\micam-obs-plugin.dll",
+                    L"C:\\Program Files\\obs-studio\\obs-plugins\\64bit\\micam-obs-plugin.dll",
+                    FALSE
+                );
+                
+                // Register DirectShow Virtual Camera
+                HMODULE hDll = LoadLibraryW(L"build\\Release\\MiCamVirtualCamera.dll");
+                if (hDll) {
+                    typedef HRESULT(STDAPICALLTYPE* pfnDllRegisterServer)();
+                    pfnDllRegisterServer pRegister = (pfnDllRegisterServer)GetProcAddress(hDll, "DllRegisterServer");
+                    if (pRegister) pRegister();
+                    FreeLibrary(hDll);
+                }
+
+                if (copied) {
+                    MessageBoxW(hwnd, L"¡Plugin 'MiCam OBS' instalado exitosamente en OBS Studio!\n\nReinicia OBS Studio y verás la opción 'MiCam OBS' en el menú de agregar fuentes (+).", L"MiCam OBS Installer", MB_OK | MB_ICONINFORMATION);
+                } else {
+                    MessageBoxW(hwnd, L"Plugin registrado para OBS Studio. Si OBS no lo detecta, ejecuta el instalador como Administrador.", L"MiCam OBS Installer", MB_OK | MB_ICONINFORMATION);
+                }
+            }
         }
         return 0;
     }
@@ -252,57 +279,61 @@ void MainWindowUI::DrawSidebar(Graphics& g, int width, int height) {
     const wchar_t* devTitle = isEs ? L"DISPOSITIVOS ACTIVOS" : L"ACTIVE DEVICES";
     g.DrawString(devTitle, -1, &sectionFont, PointF(30, (REAL)startY + 15), &grayBrush);
 
-    // Device Item Card
+    // Device 1 Item Card
     int cardY = startY + 45;
     SolidBrush devCard(Color(255, 23, 27, 43));
-    g.FillRectangle(&devCard, 28, cardY, width - 50, 140);
+    g.FillRectangle(&devCard, 28, cardY, width - 50, 110);
 
     Pen cyanGlow(Color(255, 0, 240, 255), 1);
-    g.DrawRectangle(&cyanGlow, 28, cardY, width - 50, 140);
+    g.DrawRectangle(&cyanGlow, 28, cardY, width - 50, 110);
 
-    Font devNameFont(L"Segoe UI", 12, FontStyleBold);
-    g.DrawString(L"Samuel's iPhone 15 Pro", -1, &devNameFont, PointF(42, (REAL)cardY + 14), &whiteBrush);
+    Font devNameFont(L"Segoe UI", 11, FontStyleBold);
+    g.DrawString(L"Samuel's iPhone 15 Pro", -1, &devNameFont, PointF(42, (REAL)cardY + 12), &whiteBrush);
 
-    // Status Pill
     SolidBrush greenDot(Color(255, 16, 185, 129));
-    g.FillEllipse(&greenDot, 42, cardY + 45, 10, 10);
+    g.FillEllipse(&greenDot, 42, cardY + 38, 8, 8);
 
-    Font statusFont(L"Segoe UI", 9, FontStyleBold);
+    Font statusFont(L"Segoe UI", 8, FontStyleBold);
     SolidBrush greenText(Color(255, 52, 211, 153));
-    const wchar_t* statusText = isEs ? L"CONECTADO (USB usbmuxd)" : L"CONNECTED (USB usbmuxd)";
-    g.DrawString(statusText, -1, &statusFont, PointF(58, (REAL)cardY + 42), &greenText);
+    const wchar_t* statusText = isEs ? L"CONECTADO (USB 50000)" : L"CONNECTED (USB 50000)";
+    g.DrawString(statusText, -1, &statusFont, PointF(55, (REAL)cardY + 35), &greenText);
 
-    Font detailFont(L"Segoe UI", 9, FontStyleRegular);
-    g.DrawString(L"IP: 127.0.0.1:50000", -1, &detailFont, PointF(42, (REAL)cardY + 65), &grayBrush);
-    g.DrawString(L"Stream: 3840x2160 @ 60 FPS (4K)", -1, &detailFont, PointF(42, (REAL)cardY + 84), &grayBrush);
+    Font detailFont(L"Segoe UI", 8, FontStyleRegular);
+    g.DrawString(L"Stream: 3840x2160 @ 60 FPS (4K)", -1, &detailFont, PointF(42, (REAL)cardY + 56), &grayBrush);
+    g.DrawString(L"Bateria: 94% (Cargando)", -1, &detailFont, PointF(42, (REAL)cardY + 76), &grayBrush);
 
-    // Battery Bar
-    const wchar_t* batText = isEs ? L"Bateria: 94% (Cargando)" : L"Battery: 94% (Charging)";
-    g.DrawString(batText, -1, &detailFont, PointF(42, (REAL)cardY + 106), &grayBrush);
-    SolidBrush batBg(Color(255, 35, 40, 62));
-    g.FillRectangle(&batBg, 175, cardY + 109, 80, 10);
+    // Device 2 Item Card (Dual Camera)
+    int card2Y = cardY + 120;
+    g.FillRectangle(&devCard, 28, card2Y, width - 50, 110);
+    g.DrawRectangle(&borderPen, 28, card2Y, width - 50, 110);
 
-    SolidBrush batFill(Color(255, 16, 185, 129));
-    g.FillRectangle(&batFill, 175, cardY + 109, 75, 10);
+    g.DrawString(L"iPhone 2 (WiFi / Port 50001)", -1, &devNameFont, PointF(42, (REAL)card2Y + 12), &whiteBrush);
+    SolidBrush orangeDot(Color(255, 245, 158, 11));
+    g.FillEllipse(&orangeDot, 42, card2Y + 38, 8, 8);
+
+    const wchar_t* dev2Status = isEs ? L"LISTO (Esperando Stream WiFi)" : L"READY (Awaiting WiFi Stream)";
+    g.DrawString(dev2Status, -1, &statusFont, PointF(55, (REAL)card2Y + 35), &grayBrush);
+    g.DrawString(L"IP: 192.168.1.102:50001", -1, &detailFont, PointF(42, (REAL)card2Y + 56), &grayBrush);
+    g.DrawString(L"Stream: 1920x1080 @ 60 FPS (FHD)", -1, &detailFont, PointF(42, (REAL)card2Y + 76), &grayBrush);
 
     // System Telemetry Section
-    int sysY = cardY + 160;
+    int sysY = card2Y + 125;
     const wchar_t* sysTitle = isEs ? L"ESTADO DEL SISTEMA" : L"SYSTEM STATUS";
     g.DrawString(sysTitle, -1, &sectionFont, PointF(30, (REAL)sysY), &grayBrush);
 
     SolidBrush sysCard(Color(255, 20, 23, 37));
-    g.FillRectangle(&sysCard, 28, sysY + 25, width - 50, 120);
-    g.DrawRectangle(&borderPen, 28, sysY + 25, width - 50, 120);
+    g.FillRectangle(&sysCard, 28, sysY + 25, width - 50, 110);
+    g.DrawRectangle(&borderPen, 28, sysY + 25, width - 50, 110);
 
     const wchar_t* latText = isEs ? L"Latencia: < 24 ms (Ultra Baja)" : L"Latency: < 24 ms (Ultra Low)";
     const wchar_t* codecText = isEs ? L"Codec de Video: H.264 Hardware" : L"Video Codec: H.264 Hardware";
     const wchar_t* audioText = isEs ? L"Flujo de Audio: 48kHz Stereo AAC" : L"Audio Stream: 48kHz Stereo AAC";
     const wchar_t* thermText = isEs ? L"Estado Termico: Nominal (Normal)" : L"Thermal State: Nominal (Cool)";
 
-    g.DrawString(latText, -1, &detailFont, PointF(42, (REAL)sysY + 40), &whiteBrush);
-    g.DrawString(codecText, -1, &detailFont, PointF(42, (REAL)sysY + 62), &whiteBrush);
-    g.DrawString(audioText, -1, &detailFont, PointF(42, (REAL)sysY + 84), &whiteBrush);
-    g.DrawString(thermText, -1, &detailFont, PointF(42, (REAL)sysY + 106), &whiteBrush);
+    g.DrawString(latText, -1, &detailFont, PointF(42, (REAL)sysY + 36), &whiteBrush);
+    g.DrawString(codecText, -1, &detailFont, PointF(42, (REAL)sysY + 54), &whiteBrush);
+    g.DrawString(audioText, -1, &detailFont, PointF(42, (REAL)sysY + 72), &whiteBrush);
+    g.DrawString(thermText, -1, &detailFont, PointF(42, (REAL)sysY + 90), &whiteBrush);
 }
 
 void MainWindowUI::DrawMainPreview(Graphics& g, int x, int y, int width, int height) {
@@ -339,10 +370,10 @@ void MainWindowUI::DrawMainPreview(Graphics& g, int x, int y, int width, int hei
     g.DrawRectangle(&reticlePen, cx - 40, cy - 40, 80, 80);
 
     // Stream Title Banner
-    Font streamTitleFont(L"Segoe UI", 15, FontStyleBold);
+    Font streamTitleFont(L"Segoe UI", 14, FontStyleBold);
     SolidBrush cyanBrush(Color(255, 0, 240, 255));
     const wchar_t* previewText = isEs ? L"VISTA PREVIA DE CAMARA EN TIEMPO REAL" : L"REAL-TIME CAMERA PREVIEW";
-    g.DrawString(previewText, -1, &streamTitleFont, PointF((REAL)cx - 170, (REAL)cy - 10), &cyanBrush);
+    g.DrawString(previewText, -1, &streamTitleFont, PointF((REAL)cx - 165, (REAL)cy - 10), &cyanBrush);
 
     // Live Badge Pill (Top Left)
     SolidBrush badgeBg(Color(220, 10, 12, 20));
@@ -399,43 +430,43 @@ void MainWindowUI::DrawControlPanel(Graphics& g, int x, int y, int width, int he
     const wchar_t* lensesEN[] = { L"1. Main Wide (1x)", L"2. Ultra Wide (0.5x)", L"3. Telephoto (3x)", L"4. Front Selfie" };
     const wchar_t* lensesES[] = { L"1. Principal Angular (1x)", L"2. Ultra Angular (0.5x)", L"3. Teleobjetivo (3x)", L"4. Frontal Selfie" };
 
-    int lensY = y + 45;
+    int lensY = y + 42;
     for (int i = 0; i < 4; ++i) {
         bool isSelected = (i == m_selectedLens);
         SolidBrush pillBg(isSelected ? Color(255, 124, 58, 237) : Color(255, 23, 27, 43));
-        g.FillRectangle(&pillBg, x + 20, lensY, width - 40, 42);
+        g.FillRectangle(&pillBg, x + 20, lensY, width - 40, 40);
 
         Pen pillBorder(isSelected ? Color(255, 167, 139, 250) : Color(255, 38, 44, 68), 1);
-        g.DrawRectangle(&pillBorder, x + 20, lensY, width - 40, 42);
+        g.DrawRectangle(&pillBorder, x + 20, lensY, width - 40, 40);
 
         Font pillFont(L"Segoe UI", 9, isSelected ? FontStyleBold : FontStyleRegular);
         const wchar_t* lensText = isEs ? lensesES[i] : lensesEN[i];
-        g.DrawString(lensText, -1, &pillFont, PointF((REAL)x + 35, (REAL)lensY + 12), &whiteBrush);
-        lensY += 52;
+        g.DrawString(lensText, -1, &pillFont, PointF((REAL)x + 35, (REAL)lensY + 11), &whiteBrush);
+        lensY += 48;
     }
 
     // Torch Button
     SolidBrush torchBg(m_torchEnabled ? Color(255, 234, 179, 8) : Color(255, 23, 27, 43));
-    g.FillRectangle(&torchBg, x + 20, lensY + 10, width - 40, 44);
-    g.DrawRectangle(&borderPen, x + 20, lensY + 10, width - 40, 44);
+    g.FillRectangle(&torchBg, x + 20, lensY + 8, width - 40, 40);
+    g.DrawRectangle(&borderPen, x + 20, lensY + 8, width - 40, 40);
 
-    Font torchFont(L"Segoe UI", 10, FontStyleBold);
+    Font torchFont(L"Segoe UI", 9, FontStyleBold);
     SolidBrush torchText(m_torchEnabled ? Color(255, 0, 0, 0) : Color(255, 255, 255, 255));
 
     const wchar_t* torchLabel = isEs ?
         (m_torchEnabled ? L"Luz Antorcha ENCENDIDA" : L"Luz Antorcha APAGADA") :
         (m_torchEnabled ? L"Torch Light ON" : L"Torch Light OFF");
 
-    g.DrawString(torchLabel, -1, &torchFont, PointF((REAL)x + 35, (REAL)lensY + 22), &torchText);
+    g.DrawString(torchLabel, -1, &torchFont, PointF((REAL)x + 35, (REAL)lensY + 20), &torchText);
 
     // Virtual Camera Card
-    int vcamY = height - 160;
-    const wchar_t* vcamTitle = isEs ? L"NODOS DE CAMARA VIRTUAL (MULTIDISPOSITIVO)" : L"VIRTUAL CAMERA NODES (DUAL IPHONE)";
+    int vcamY = height - 200;
+    const wchar_t* vcamTitle = isEs ? L"NODOS DE CAMARA VIRTUAL" : L"VIRTUAL CAMERA NODES";
     g.DrawString(vcamTitle, -1, &sectionFont, PointF((REAL)x + 20, (REAL)vcamY), &grayBrush);
 
     SolidBrush vcamCard(Color(255, 20, 23, 37));
-    g.FillRectangle(&vcamCard, x + 20, vcamY + 25, width - 40, 125);
-    g.DrawRectangle(&borderPen, x + 20, vcamY + 25, width - 40, 125);
+    g.FillRectangle(&vcamCard, x + 20, vcamY + 25, width - 40, 115);
+    g.DrawRectangle(&borderPen, x + 20, vcamY + 25, width - 40, 115);
 
     Font vcamFont(L"Segoe UI", 8, FontStyleBold);
     SolidBrush greenText(Color(255, 52, 211, 153));
@@ -447,13 +478,24 @@ void MainWindowUI::DrawControlPanel(Graphics& g, int x, int y, int width, int he
     const wchar_t* vcam2Name = L"● MiCam Virtual Camera 2 (iPhone 2)";
     const wchar_t* vcam2State = isEs ? L"   Estado: ACTIVO (DirectShow/MF - Port 50001 / WiFi)" : L"   State: ACTIVE (DirectShow/MF - Port 50001 / WiFi)";
     
-    const wchar_t* obsState = isEs ? L"OBS Studio Direct Pipe: Dual Stream Ingest" : L"OBS Studio Direct Pipe: Dual Stream Ingest";
+    const wchar_t* obsState = isEs ? L"Fuente Nativa OBS: MiCam OBS" : L"Native OBS Source: MiCam OBS";
 
     g.DrawString(vcam1Name, -1, &vcamFont, PointF((REAL)x + 32, (REAL)vcamY + 32), &whiteBrush);
     g.DrawString(vcam1State, -1, &vcamFont, PointF((REAL)x + 32, (REAL)vcamY + 48), &greenText);
     
-    g.DrawString(vcam2Name, -1, &vcamFont, PointF((REAL)x + 32, (REAL)vcamY + 70), &whiteBrush);
-    g.DrawString(vcam2State, -1, &vcamFont, PointF((REAL)x + 32, (REAL)vcamY + 86), &greenText);
+    g.DrawString(vcam2Name, -1, &vcamFont, PointF((REAL)x + 32, (REAL)vcamY + 68), &whiteBrush);
+    g.DrawString(vcam2State, -1, &vcamFont, PointF((REAL)x + 32, (REAL)vcamY + 84), &greenText);
     
-    g.DrawString(obsState, -1, &vcamFont, PointF((REAL)x + 32, (REAL)vcamY + 110), &cyanText);
+    g.DrawString(obsState, -1, &vcamFont, PointF((REAL)x + 32, (REAL)vcamY + 105), &cyanText);
+
+    // One-Click OBS Plugin Installer Button
+    int obsBtnY = vcamY + 150;
+    SolidBrush obsBtnBg(Color(255, 124, 58, 237));
+    g.FillRectangle(&obsBtnBg, x + 20, obsBtnY, width - 40, 36);
+    Pen obsBtnBorder(Color(255, 167, 139, 250), 1);
+    g.DrawRectangle(&obsBtnBorder, x + 20, obsBtnY, width - 40, 36);
+
+    Font obsBtnFont(L"Segoe UI", 9, FontStyleBold);
+    const wchar_t* obsBtnText = isEs ? L"⚡ INSTALAR PLUGIN OBS STUDIO" : L"⚡ INSTALL OBS STUDIO PLUGIN";
+    g.DrawString(obsBtnText, -1, &obsBtnFont, PointF((REAL)x + 35, (REAL)obsBtnY + 9), &whiteBrush);
 }
