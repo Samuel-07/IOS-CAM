@@ -99,8 +99,8 @@ LRESULT MainWindowUI::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
         RECT rc;
         GetClientRect(hwnd, &rc);
 
-        // Language Switcher Click in Top Header (x: rc.right - 100 to rc.right - 20, y: 15 to 50)
-        if (x >= rc.right - 100 && x <= rc.right - 20 && y >= 15 && y <= 50) {
+        // Language Switcher Click in Top Header
+        if (x >= rc.right - 110 && x <= rc.right - 10 && y >= 15 && y <= 50) {
             m_language = (m_language == UILanguage::Spanish) ? UILanguage::English : UILanguage::Spanish;
             InvalidateRect(hwnd, NULL, FALSE);
             return 0;
@@ -202,22 +202,22 @@ void MainWindowUI::OnPaint(HWND hwnd) {
 
     // Hardware Metrics Badge
     SolidBrush metricCard(Color(255, 22, 26, 42));
-    g.FillRectangle(&metricCard, width - 460, 15, 340, 36);
-    g.DrawRectangle(&borderPen, width - 460, 15, 340, 36);
+    g.FillRectangle(&metricCard, width - 480, 15, 350, 36);
+    g.DrawRectangle(&borderPen, width - 480, 15, 350, 36);
 
     Font metricFont(L"Segoe UI", 9, FontStyleRegular);
     SolidBrush grayBrush(Color(255, 156, 163, 185));
-    g.DrawString(L"CPU: 1.1%  |  RAM: 38 MB  |  Pipeline: Zero-Copy DXVA2", -1, &metricFont, PointF((REAL)width - 445, 24), &grayBrush);
+    g.DrawString(L"CPU: 1.1%  |  RAM: 38 MB  |  Pipeline: Zero-Copy DXVA2", -1, &metricFont, PointF((REAL)width - 465, 24), &grayBrush);
 
-    // Language Selector Button [ EN | ES ] (Top Right)
-    SolidBrush langBg(Color(255, 124, 58, 237)); // Purple highlight
-    g.FillRectangle(&langBg, width - 100, 15, 80, 36);
+    // Language Selector Button [ ES ] / [ EN ] (Top Right)
+    SolidBrush langBg(Color(255, 124, 58, 237));
+    g.FillRectangle(&langBg, width - 110, 15, 95, 36);
     Pen langBorder(Color(255, 167, 139, 250), 1);
-    g.DrawRectangle(&langBorder, width - 100, 15, 80, 36);
+    g.DrawRectangle(&langBorder, width - 110, 15, 95, 36);
 
     Font langFont(L"Segoe UI", 9, FontStyleBold);
-    const wchar_t* langLabel = isEs ? L"ES [ESPAÑOL]" : L"EN [ENGLISH]";
-    g.DrawString(langLabel, -1, &langFont, PointF((REAL)width - 96, 24), &whiteBrush);
+    const wchar_t* langLabel = isEs ? L"ESPAÑOL" : L"ENGLISH";
+    g.DrawString(langLabel, -1, &langFont, PointF((REAL)width - 98, 24), &whiteBrush);
 
     // 1. Sidebar (320px width)
     DrawSidebar(g, 320, height - 65);
@@ -277,7 +277,7 @@ void MainWindowUI::DrawSidebar(Graphics& g, int width, int height) {
     g.DrawString(L"Stream: 3840x2160 @ 60 FPS (4K)", -1, &detailFont, PointF(42, (REAL)cardY + 84), &grayBrush);
 
     // Battery Bar
-    const wchar_t* batText = isEs ? L"Batería: 94% (Cargando)" : L"Battery: 94% (Charging)";
+    const wchar_t* batText = isEs ? L"Bateria: 94% (Cargando)" : L"Battery: 94% (Charging)";
     g.DrawString(batText, -1, &detailFont, PointF(42, (REAL)cardY + 106), &grayBrush);
     SolidBrush batBg(Color(255, 35, 40, 62));
     g.FillRectangle(&batBg, 175, cardY + 109, 80, 10);
@@ -295,9 +295,9 @@ void MainWindowUI::DrawSidebar(Graphics& g, int width, int height) {
     g.DrawRectangle(&borderPen, 28, sysY + 25, width - 50, 120);
 
     const wchar_t* latText = isEs ? L"Latencia: < 24 ms (Ultra Baja)" : L"Latency: < 24 ms (Ultra Low)";
-    const wchar_t* codecText = isEs ? L"Códec de Video: H.264 Hardware" : L"Video Codec: H.264 Hardware";
-    const wchar_t* audioText = isEs ? L"Flujo de Audio: 48kHz Estéreo AAC" : L"Audio Stream: 48kHz Stereo AAC";
-    const wchar_t* thermText = isEs ? L"Estado Térmico: Nominal (Fresco)" : L"Thermal State: Nominal (Cool)";
+    const wchar_t* codecText = isEs ? L"Codec de Video: H.264 Hardware" : L"Video Codec: H.264 Hardware";
+    const wchar_t* audioText = isEs ? L"Flujo de Audio: 48kHz Stereo AAC" : L"Audio Stream: 48kHz Stereo AAC";
+    const wchar_t* thermText = isEs ? L"Estado Termico: Nominal (Normal)" : L"Thermal State: Nominal (Cool)";
 
     g.DrawString(latText, -1, &detailFont, PointF(42, (REAL)sysY + 40), &whiteBrush);
     g.DrawString(codecText, -1, &detailFont, PointF(42, (REAL)sysY + 62), &whiteBrush);
@@ -341,8 +341,8 @@ void MainWindowUI::DrawMainPreview(Graphics& g, int x, int y, int width, int hei
     // Stream Title Banner
     Font streamTitleFont(L"Segoe UI", 15, FontStyleBold);
     SolidBrush cyanBrush(Color(255, 0, 240, 255));
-    const wchar_t* previewText = isEs ? L"VISTA PREVIA DE CÁMARA EN TIEMPO REAL" : L"REAL-TIME CAMERA PREVIEW";
-    g.DrawString(previewText, -1, &streamTitleFont, PointF((REAL)cx - 165, (REAL)cy - 10), &cyanBrush);
+    const wchar_t* previewText = isEs ? L"VISTA PREVIA DE CAMARA EN TIEMPO REAL" : L"REAL-TIME CAMERA PREVIEW";
+    g.DrawString(previewText, -1, &streamTitleFont, PointF((REAL)cx - 170, (REAL)cy - 10), &cyanBrush);
 
     // Live Badge Pill (Top Left)
     SolidBrush badgeBg(Color(220, 10, 12, 20));
@@ -351,7 +351,7 @@ void MainWindowUI::DrawMainPreview(Graphics& g, int x, int y, int width, int hei
 
     Font badgeFont(L"Segoe UI", 9, FontStyleBold);
     SolidBrush whiteBrush(Color(255, 255, 255, 255));
-    const wchar_t* liveText = isEs ? L"TRANSMISIÓN EN VIVO | 60 FPS" : L"LIVE STREAM | 60 FPS";
+    const wchar_t* liveText = isEs ? L"TRANSMISION EN VIVO | 60 FPS" : L"LIVE STREAM | 60 FPS";
     g.DrawString(liveText, -1, &badgeFont, PointF((REAL)viewX + 25, (REAL)viewY + 22), &whiteBrush);
 
     // Resolution Badge (Top Right)
@@ -364,7 +364,7 @@ void MainWindowUI::DrawMainPreview(Graphics& g, int x, int y, int width, int hei
     Font btnFont(L"Segoe UI", 9, FontStyleBold);
 
     const wchar_t* actionsEN[] = { L"Torch", L"HDR On", L"Autofocus", L"Stabilization" };
-    const wchar_t* actionsES[] = { L"Antorcha", L"HDR Activo", L"Autoenfoque", L"Estabilización" };
+    const wchar_t* actionsES[] = { L"Antorcha", L"HDR Activo", L"Autoenfoque", L"Estabilizacion" };
 
     int btnX = viewX;
     int btnWidth = (viewW - 30) / 4;
@@ -392,7 +392,7 @@ void MainWindowUI::DrawControlPanel(Graphics& g, int x, int y, int width, int he
     SolidBrush whiteBrush(Color(255, 255, 255, 255));
     SolidBrush grayBrush(Color(255, 156, 163, 185));
 
-    const wchar_t* opticsTitle = isEs ? L"ÓPTICA DE CÁMARA" : L"CAMERA OPTICS";
+    const wchar_t* opticsTitle = isEs ? L"OPTICA DE CAMARA" : L"CAMERA OPTICS";
     g.DrawString(opticsTitle, -1, &sectionFont, PointF((REAL)x + 20, (REAL)y + 15), &grayBrush);
 
     // Lens Selection Grid
@@ -430,7 +430,7 @@ void MainWindowUI::DrawControlPanel(Graphics& g, int x, int y, int width, int he
 
     // Virtual Camera Card
     int vcamY = height - 140;
-    const wchar_t* vcamTitle = isEs ? L"NODOS DE CÁMARA VIRTUAL" : L"VIRTUAL CAMERA NODES";
+    const wchar_t* vcamTitle = isEs ? L"NODOS DE CAMARA VIRTUAL" : L"VIRTUAL CAMERA NODES";
     g.DrawString(vcamTitle, -1, &sectionFont, PointF((REAL)x + 20, (REAL)vcamY), &grayBrush);
 
     SolidBrush vcamCard(Color(255, 20, 23, 37));
@@ -439,9 +439,9 @@ void MainWindowUI::DrawControlPanel(Graphics& g, int x, int y, int width, int he
 
     Font vcamFont(L"Segoe UI", 9, FontStyleBold);
     SolidBrush greenText(Color(255, 52, 211, 153));
-    const wchar_t* vcamName = L"● MiCam Virtual Camera 1";
+    const wchar_t* vcamName = L"MiCam Virtual Camera 1";
     const wchar_t* vcamState = isEs ? L"   Estado: ACTIVO (DirectShow/MF)" : L"   State: ACTIVE (DirectShow/MF)";
-    const wchar_t* obsState = isEs ? L"● Conexión Directa OBS Studio" : L"● OBS Studio Direct Pipe";
+    const wchar_t* obsState = isEs ? L"Conexion Directa OBS Studio" : L"OBS Studio Direct Pipe";
 
     g.DrawString(vcamName, -1, &vcamFont, PointF((REAL)x + 32, (REAL)vcamY + 38), &whiteBrush);
     g.DrawString(vcamState, -1, &vcamFont, PointF((REAL)x + 32, (REAL)vcamY + 58), &greenText);

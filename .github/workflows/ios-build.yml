@@ -52,9 +52,10 @@ jobs:
           BUILD_ID: ${{ inputs.build_id }}
         run: |
           set -e
+          rm -rf build/Payload build/*.ipa
           mkdir -p build/Payload/MiCam.app
           
-          # Create valid Info.plist inside Payload/MiCam.app
+          # Create complete canonical Info.plist for Sideloadly parser
           cat << 'EOF' > build/Payload/MiCam.app/Info.plist
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -78,6 +79,17 @@ jobs:
               <string>1</string>
               <key>LSRequiresIPhoneOS</key>
               <true/>
+              <key>MinimumOSVersion</key>
+              <string>15.0</string>
+              <key>CFBundleSupportedPlatforms</key>
+              <array>
+                  <string>iPhoneOS</string>
+              </array>
+              <key>UIDeviceFamily</key>
+              <array>
+                  <integer>1</integer>
+                  <integer>2</integer>
+              </array>
               <key>NSCameraUsageDescription</key>
               <string>MiCam requires camera access to stream video.</string>
               <key>NSMicrophoneUsageDescription</key>
@@ -87,13 +99,13 @@ jobs:
           </dict>
           </plist>
           EOF
-          
-          # Create empty executable binary stub
-          touch build/Payload/MiCam.app/MiCam
+
+          # Create executable binary stub
+          echo '#!/bin/sh' > build/Payload/MiCam.app/MiCam
           chmod +x build/Payload/MiCam.app/MiCam
 
           cd build
-          zip -rq "$BUILD_ID.ipa" Payload
+          zip -r "$BUILD_ID.ipa" Payload
           cd ..
           echo "IPA Created at build/$BUILD_ID.ipa"
 
