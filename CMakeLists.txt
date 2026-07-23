@@ -27,6 +27,14 @@ add_executable(MiCamDesktop WIN32
 )
 target_link_libraries(MiCamDesktop PRIVATE ws2_32 Ole32 User32 Gdi32 Shlwapi Shell32)
 
+# Standalone diagnostic console tool (not shipped) for debugging usbmuxd/mDNS detection issues.
+add_executable(UsbMuxDebug
+    Desktop/src/UsbMuxDebug.cpp
+    Desktop/src/UsbMuxClient.cpp
+    Desktop/src/MdnsBrowser.cpp
+)
+target_link_libraries(UsbMuxDebug PRIVATE ws2_32)
+
 # Virtual Camera Shared DLL
 add_library(MiCamVirtualCamera SHARED
     VirtualCamera/src/VirtualCameraMediaFoundation.cpp

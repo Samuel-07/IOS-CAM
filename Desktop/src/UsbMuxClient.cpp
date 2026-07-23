@@ -170,15 +170,20 @@ SOCKET UsbMuxClient::Connect(int deviceId, uint16_t port) {
         return INVALID_SOCKET;
     }
 
+    // Tunneling a Connect over real USB (vs. a local ListDevices query) can take noticeably
+    // longer than a plain metadata round-trip, so this gets a longer timeout than ListDevices.
     std::string response;
-    if (!ReadPlistMessage(s, response, 800)) {
+    if (!ReadPlistMessage(s, response, 3000)) {
         closesocket(s);
         return INVALID_SOCKET;
     }
 
-    // Success looks like "<key>Number</key><integer>0</integer>". Any other Number = failure
-    // (device busy, port not listening yet, etc).
-    if (response.find("<key>Number</key><integer>0</integer>") == std::string::npos) {
+    // Success looks like "<key>Number</key><integer>0</integer>", but real plist XML is
+    // pretty-printed with whitespace/newlines between tags - a literal substring match here
+    // was reporting successful connects as failures. Match the same whitespace-tolerant way
+    // ListDevices() already does.
+    static const std::regex successRe("<key>Number</key>\\s*<integer>0</integer>");
+    if (!std::regex_search(response, successRe)) {
         closesocket(s);
         return INVALID_SOCKET;
     }

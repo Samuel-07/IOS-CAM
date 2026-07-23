@@ -178,7 +178,23 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
             (640, 480)    // VGA 4:3
         ]
 
-        var formatMap: [String: CameraFormatDescriptor] = [:]
+        struct Candidate {
+            let format: AVCaptureDevice.Format
+            let width: Int32
+            let height: Int32
+            let maxFps: Double
+            let minFps: Double
+            let isExact: Bool
+        }
+
+        // One candidate per target "slot" - picking the tightest-fitting real format for each,
+        // never a label that lies about what the sensor is actually producing. Previously this
+        // stored the TARGET's dimensions as the descriptor's width/height even when the actual
+        // chosen AVCaptureDevice.Format was a different (larger, different-aspect) native size -
+        // that mismatch meant the video encoder could be configured for e.g. 1920x1080 while the
+        // camera was actually delivering 1920x1440 buffers, which is what caused the reported
+        // "screen vibrating" corruption and FPS ranges silently not matching what was requested.
+        var bestPerTarget: [String: Candidate] = [:]
 
         for format in device.formats {
             let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
@@ -187,68 +203,60 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
             var maxFps: Double = 30.0
             var minFps: Double = 24.0
             for range in fpsRanges {
-                if range.maxFrameRate > maxFps {
-                    maxFps = range.maxFrameRate
-                }
-                if range.minFrameRate < minFps {
-                    minFps = range.minFrameRate
-                }
+                if range.maxFrameRate > maxFps { maxFps = range.maxFrameRate }
+                if range.minFrameRate < minFps { minFps = range.minFrameRate }
             }
 
-            // Check if this format matches a standard video resolution
             for target in targetResolutions {
-                let matchWidth = (dimensions.width == target.width) || (dimensions.height == target.width && dimensions.width == target.height)
-                let matchHeight = (dimensions.height == target.height) || (dimensions.width == target.height && dimensions.height == target.width)
+                let isExact = dimensions.width == target.width && dimensions.height == target.height
+                let isSuperset = dimensions.width >= target.width && dimensions.height >= target.height
+                guard isExact || isSuperset else { continue }
 
-                if matchWidth || matchHeight || (dimensions.width >= target.width && dimensions.height >= target.height) {
-                    // Landscape entry, keyed by the target's own dimensions.
-                    let landscapeKey = "\(target.width)x\(target.height)"
-                    let landscapeDesc = CameraFormatDescriptor(
-                        id: landscapeKey, width: target.width, height: target.height,
-                        maxFps: maxFps, minFps: minFps, format: format, isPortrait: false
-                    )
-                    if let existing = formatMap[landscapeKey] {
-                        if maxFps > existing.maxFps { formatMap[landscapeKey] = landscapeDesc }
-                    } else {
-                        formatMap[landscapeKey] = landscapeDesc
-                    }
+                let key = "\(target.width)x\(target.height)"
+                let candidate = Candidate(format: format, width: dimensions.width, height: dimensions.height, maxFps: maxFps, minFps: minFps, isExact: isExact)
 
-                    // Portrait entry - same underlying sensor format, swapped dimensions;
-                    // configureFormat rotates the capture connection to actually deliver it
-                    // vertically.
-                    let portraitKey = "\(target.height)x\(target.width)_portrait"
-                    let portraitDesc = CameraFormatDescriptor(
-                        id: portraitKey, width: target.height, height: target.width,
-                        maxFps: maxFps, minFps: minFps, format: format, isPortrait: true
-                    )
-                    if let existing = formatMap[portraitKey] {
-                        if maxFps > existing.maxFps { formatMap[portraitKey] = portraitDesc }
-                    } else {
-                        formatMap[portraitKey] = portraitDesc
+                if let existing = bestPerTarget[key] {
+                    let existingArea = Int64(existing.width) * Int64(existing.height)
+                    let candidateArea = Int64(dimensions.width) * Int64(dimensions.height)
+                    if candidate.isExact && !existing.isExact {
+                        bestPerTarget[key] = candidate
+                    } else if candidate.isExact == existing.isExact {
+                        if candidateArea < existingArea {
+                            bestPerTarget[key] = candidate // tighter fit, less cropping
+                        } else if candidateArea == existingArea && candidate.maxFps > existing.maxFps {
+                            bestPerTarget[key] = candidate
+                        }
                     }
-                    break
+                } else {
+                    bestPerTarget[key] = candidate
+                }
+                break
+            }
+        }
+
+        // Guarantee all 6 target slots are represented even if nothing matched exactly.
+        if let fallbackFormat = device.formats.first {
+            let fallbackDims = CMVideoFormatDescriptionGetDimensions(fallbackFormat.formatDescription)
+            for target in targetResolutions {
+                let key = "\(target.width)x\(target.height)"
+                if bestPerTarget[key] == nil {
+                    bestPerTarget[key] = Candidate(format: fallbackFormat, width: fallbackDims.width, height: fallbackDims.height, maxFps: 60.0, minFps: 24.0, isExact: false)
                 }
             }
         }
 
-        // Guarantee all 6 target resolutions (both orientations) are represented
-        if let fallbackFormat = device.formats.first {
-            for target in targetResolutions {
-                let landscapeKey = "\(target.width)x\(target.height)"
-                if formatMap[landscapeKey] == nil {
-                    formatMap[landscapeKey] = CameraFormatDescriptor(
-                        id: landscapeKey, width: target.width, height: target.height,
-                        maxFps: 60.0, minFps: 24.0, format: fallbackFormat, isPortrait: false
-                    )
-                }
-                let portraitKey = "\(target.height)x\(target.width)_portrait"
-                if formatMap[portraitKey] == nil {
-                    formatMap[portraitKey] = CameraFormatDescriptor(
-                        id: portraitKey, width: target.height, height: target.width,
-                        maxFps: 60.0, minFps: 24.0, format: fallbackFormat, isPortrait: true
-                    )
-                }
-            }
+        var formatMap: [String: CameraFormatDescriptor] = [:]
+        for (_, c) in bestPerTarget {
+            let landscapeKey = "\(c.width)x\(c.height)"
+            formatMap[landscapeKey] = CameraFormatDescriptor(
+                id: landscapeKey, width: c.width, height: c.height,
+                maxFps: c.maxFps, minFps: c.minFps, format: c.format, isPortrait: false
+            )
+            let portraitKey = "\(c.height)x\(c.width)_portrait"
+            formatMap[portraitKey] = CameraFormatDescriptor(
+                id: portraitKey, width: c.height, height: c.width,
+                maxFps: c.maxFps, minFps: c.minFps, format: c.format, isPortrait: true
+            )
         }
 
         var cleanFormats = Array(formatMap.values)

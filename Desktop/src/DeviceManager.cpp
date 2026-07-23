@@ -137,11 +137,41 @@ void DeviceManager::ReconcileUsbDevices() {
         ++it;
     }
 
-    // Connect newly attached devices.
+    // Connect newly attached devices - and re-home onto USB any device we already know about
+    // (by UDID) that's currently riding WiFi, since USB is always lower latency. This is what
+    // makes "plug the same iPhone back in after switching it to WiFi" transparently prefer USB
+    // again instead of leaving it on WiFi or creating a second, duplicate entry for it.
     for (const auto& mux : muxDevices) {
-        bool alreadyTracked = std::any_of(m_connections.begin(), m_connections.end(),
-            [&](const auto& kv) { return kv.second->isUsb && kv.second->usbMuxDeviceId == mux.deviceId; });
-        if (alreadyTracked) continue;
+        std::shared_ptr<LiveConnection> existing;
+        for (auto& kv : m_connections) {
+            if (kv.first == mux.udid) { existing = kv.second; break; }
+        }
+
+        if (existing) {
+            bool alreadyOnThisUsbLink = existing->isUsb && existing->usbMuxDeviceId == mux.deviceId;
+            if (alreadyOnThisUsbLink) continue;
+
+            SOCKET sock = UsbMuxClient::Connect(mux.deviceId, kMiCamPort);
+            if (sock == INVALID_SOCKET) continue;
+
+            SOCKET oldSocket = existing->socket;
+            existing->running = false;
+            if (oldSocket != INVALID_SOCKET) closesocket(oldSocket);
+
+            {
+                std::lock_guard<std::mutex> fieldLock(existing->fieldMutex);
+                existing->socket = sock;
+                existing->isUsb = true;
+                existing->usbMuxDeviceId = mux.deviceId;
+                existing->ip = "127.0.0.1";
+                existing->port = kMiCamPort;
+                existing->handshakeDone = false;
+                existing->running = true;
+                existing->connected = true;
+            }
+            std::thread(&DeviceManager::ReaderLoop, this, existing).detach();
+            continue;
+        }
 
         SOCKET sock = UsbMuxClient::Connect(mux.deviceId, kMiCamPort);
         if (sock == INVALID_SOCKET) continue; // App likely not running on that device yet
