@@ -260,6 +260,9 @@ struct SettingsSheetView: View {
             cameraManager.configureFormat(fmt, targetFps: selectedFps)
         }) {
             HStack {
+                Image(systemName: fmt.isPortrait ? "rectangle.portrait" : "rectangle")
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
                 Text("\(fmt.width) x \(fmt.height)")
                     .font(.system(size: 14, weight: .bold, design: .monospaced))
                     .foregroundColor(.white)

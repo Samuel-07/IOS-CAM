@@ -26,11 +26,16 @@ public struct CameraFormatDescriptor: Identifiable, Hashable {
     public let maxFps: Double
     public let minFps: Double
     public let format: AVCaptureDevice.Format
-    
+    /// True for the portrait (vertical) presentation of this resolution - same underlying
+    /// sensor format as its landscape counterpart, delivered rotated via the capture
+    /// connection rather than a distinct AVCaptureDevice.Format (the sensor itself has no
+    /// separate "portrait mode").
+    public let isPortrait: Bool
+
     public static func == (lhs: CameraFormatDescriptor, rhs: CameraFormatDescriptor) -> Bool {
         return lhs.id == rhs.id
     }
-    
+
     public func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
@@ -40,24 +45,31 @@ public protocol CameraManagerDelegate: AnyObject {
     func cameraManager(_ manager: CameraManager, didOutput pixelBuffer: CVPixelBuffer, presentationTimeStamp: CMTime)
 }
 
-public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate, VideoEncoderDelegate {
     public static let shared = CameraManager()
-    
+
     public weak var delegate: CameraManagerDelegate?
-    
+
     public private(set) var captureSession = AVCaptureSession()
     private var activeDeviceInput: AVCaptureDeviceInput?
     private var videoDataOutput = AVCaptureVideoDataOutput()
     private let captureQueue = DispatchQueue(label: "com.micam.captureQueue", qos: .userInteractive)
-    
+
+    // Encodes every captured frame to H.264 and forwards it to NetworkStreamer - this is the
+    // piece that was previously entirely missing: CameraManager captured frames and
+    // VideoEncoder could encode them, but nothing ever connected the two, so no video was ever
+    // actually sent to Windows regardless of any USB/WiFi/OBS fix.
+    private let videoEncoder = VideoEncoder()
+
     @Published public private(set) var availableDevices: [CameraDeviceDescriptor] = []
     @Published public private(set) var currentDevice: CameraDeviceDescriptor?
     @Published public private(set) var availableFormats: [CameraFormatDescriptor] = []
     @Published public private(set) var currentFormat: CameraFormatDescriptor?
     @Published public private(set) var currentFps: Double = 30.0
-    
+
     override init() {
         super.init()
+        videoEncoder.delegate = self
         discoverDevices()
     }
     
@@ -154,22 +166,24 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
         }
     }
     
-    // Filter formats so ONLY the top 5 most-used broadcast resolutions appear (4K, 2K, 1080p, 720p, 480p)
+    // Filter formats so ONLY the 6 standard broadcast resolutions appear (4K, 2K, 1080p, 720p,
+    // 1024x768 XGA, 640x480 VGA), each offered in both landscape and portrait (vertical).
     private func populateFormats(for device: AVCaptureDevice) {
         let targetResolutions: [(width: Int32, height: Int32)] = [
             (3840, 2160), // 4K Ultra HD
             (2560, 1440), // 2K Quad HD
             (1920, 1080), // 1080p Full HD
             (1280, 720),  // 720p HD
-            (640, 480)    // 480p
+            (1024, 768),  // XGA 4:3
+            (640, 480)    // VGA 4:3
         ]
-        
+
         var formatMap: [String: CameraFormatDescriptor] = [:]
-        
+
         for format in device.formats {
             let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
             let fpsRanges = format.videoSupportedFrameRateRanges
-            
+
             var maxFps: Double = 30.0
             var minFps: Double = 24.0
             for range in fpsRanges {
@@ -180,58 +194,69 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
                     minFps = range.minFrameRate
                 }
             }
-            
+
             // Check if this format matches a standard video resolution
             for target in targetResolutions {
                 let matchWidth = (dimensions.width == target.width) || (dimensions.height == target.width && dimensions.width == target.height)
                 let matchHeight = (dimensions.height == target.height) || (dimensions.width == target.height && dimensions.height == target.width)
-                
+
                 if matchWidth || matchHeight || (dimensions.width >= target.width && dimensions.height >= target.height) {
-                    let resKey = "\(target.width)x\(target.height)"
-                    let desc = CameraFormatDescriptor(
-                        id: resKey,
-                        width: target.width,
-                        height: target.height,
-                        maxFps: maxFps,
-                        minFps: minFps,
-                        format: format
+                    // Landscape entry, keyed by the target's own dimensions.
+                    let landscapeKey = "\(target.width)x\(target.height)"
+                    let landscapeDesc = CameraFormatDescriptor(
+                        id: landscapeKey, width: target.width, height: target.height,
+                        maxFps: maxFps, minFps: minFps, format: format, isPortrait: false
                     )
-                    
-                    if let existing = formatMap[resKey] {
-                        if maxFps > existing.maxFps {
-                            formatMap[resKey] = desc
-                        }
+                    if let existing = formatMap[landscapeKey] {
+                        if maxFps > existing.maxFps { formatMap[landscapeKey] = landscapeDesc }
                     } else {
-                        formatMap[resKey] = desc
+                        formatMap[landscapeKey] = landscapeDesc
+                    }
+
+                    // Portrait entry - same underlying sensor format, swapped dimensions;
+                    // configureFormat rotates the capture connection to actually deliver it
+                    // vertically.
+                    let portraitKey = "\(target.height)x\(target.width)_portrait"
+                    let portraitDesc = CameraFormatDescriptor(
+                        id: portraitKey, width: target.height, height: target.width,
+                        maxFps: maxFps, minFps: minFps, format: format, isPortrait: true
+                    )
+                    if let existing = formatMap[portraitKey] {
+                        if maxFps > existing.maxFps { formatMap[portraitKey] = portraitDesc }
+                    } else {
+                        formatMap[portraitKey] = portraitDesc
                     }
                     break
                 }
             }
         }
-        
-        // Guarantee all 5 target resolutions (4K, 2K, 1080p, 720p, 480p) are represented
+
+        // Guarantee all 6 target resolutions (both orientations) are represented
         if let fallbackFormat = device.formats.first {
             for target in targetResolutions {
-                let resKey = "\(target.width)x\(target.height)"
-                if formatMap[resKey] == nil {
-                    formatMap[resKey] = CameraFormatDescriptor(
-                        id: resKey,
-                        width: target.width,
-                        height: target.height,
-                        maxFps: 60.0,
-                        minFps: 24.0,
-                        format: fallbackFormat
+                let landscapeKey = "\(target.width)x\(target.height)"
+                if formatMap[landscapeKey] == nil {
+                    formatMap[landscapeKey] = CameraFormatDescriptor(
+                        id: landscapeKey, width: target.width, height: target.height,
+                        maxFps: 60.0, minFps: 24.0, format: fallbackFormat, isPortrait: false
+                    )
+                }
+                let portraitKey = "\(target.height)x\(target.width)_portrait"
+                if formatMap[portraitKey] == nil {
+                    formatMap[portraitKey] = CameraFormatDescriptor(
+                        id: portraitKey, width: target.height, height: target.width,
+                        maxFps: 60.0, minFps: 24.0, format: fallbackFormat, isPortrait: true
                     )
                 }
             }
         }
-        
+
         var cleanFormats = Array(formatMap.values)
         cleanFormats.sort { ($0.width * $0.height) > ($1.width * $1.height) }
-        
+
         DispatchQueue.main.async {
             self.availableFormats = cleanFormats
-            if let best = cleanFormats.first(where: { $0.width == 1920 }) ?? cleanFormats.first {
+            if let best = cleanFormats.first(where: { $0.width == 1920 && !$0.isPortrait }) ?? cleanFormats.first {
                 self.configureFormat(best, targetFps: 60.0)
             }
         }
@@ -264,14 +289,38 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
 
                 device.unlockForConfiguration()
 
+                // Rotate the delivered buffers for portrait selections - the sensor format
+                // itself is unchanged (still formatDesc.height x formatDesc.width natively),
+                // the connection rotation is what actually swaps what captureOutput receives.
+                self.applyOrientation(isPortrait: formatDesc.isPortrait, position: device.position)
+
+                self.videoEncoder.configure(width: formatDesc.width, height: formatDesc.height, codec: .h264, fps: Int32(clampedFps))
+
                 DispatchQueue.main.async {
                     self.currentFormat = formatDesc
                     self.currentFps = clampedFps
                 }
-                print("[CameraManager] Configured format: \(formatDesc.width)x\(formatDesc.height) @ \(clampedFps) FPS")
+                print("[CameraManager] Configured format: \(formatDesc.width)x\(formatDesc.height) @ \(clampedFps) FPS\(formatDesc.isPortrait ? " (portrait)" : "")")
             } catch {
                 print("[CameraManager] Failed to lock device for configuration: \(error)")
             }
+        }
+    }
+
+    // Portrait (vertical) output angle differs by camera position because the front camera's
+    // sensor is mounted mirrored relative to the back camera - 90 degrees on the back camera
+    // is 270 on the front for the same physical "top of phone = top of frame" result.
+    private func applyOrientation(isPortrait: Bool, position: AVCaptureDevice.Position) {
+        guard let connection = videoDataOutput.connection(with: .video) else { return }
+        let portraitAngle: CGFloat = (position == .front) ? 270 : 90
+        let angle: CGFloat = isPortrait ? portraitAngle : 0
+
+        if #available(iOS 17.0, *) {
+            if connection.isVideoRotationAngleSupported(angle) {
+                connection.videoRotationAngle = angle
+            }
+        } else if connection.isVideoOrientationSupported {
+            connection.videoOrientation = isPortrait ? .portrait : .landscapeRight
         }
     }
 
@@ -338,5 +387,20 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         delegate?.cameraManager(self, didOutput: pixelBuffer, presentationTimeStamp: pts)
+
+        // This is the actual video transmission path: every captured frame is handed to the
+        // hardware H.264 encoder, whose output reaches Windows via videoEncoder(_:didOutputSampleData:...).
+        videoEncoder.encode(pixelBuffer: pixelBuffer, pts: pts)
+    }
+
+    // VideoEncoderDelegate
+    public func videoEncoder(_ encoder: VideoEncoder, didOutputSampleData data: Data, isKeyFrame: Bool, timestampUs: UInt64) {
+        let width = UInt16(currentFormat?.width ?? 1920)
+        let height = UInt16(currentFormat?.height ?? 1080)
+        let fps = UInt16(currentFps)
+        NetworkStreamer.shared.sendVideoFrame(
+            naluData: data, isKeyFrame: isKeyFrame, width: width, height: height,
+            fps: fps, codec: .h264, timestampUs: timestampUs
+        )
     }
 }
