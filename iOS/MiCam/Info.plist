@@ -5,7 +5,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>$(EXECUTABLE_NAME)</string>
+    <string>MiCam</string>
     <key>CFBundleIdentifier</key>
     <string>com.micam.app</string>
     <key>CFBundleInfoDictionaryVersion</key>
@@ -20,6 +20,17 @@
     <string>1</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
+    <key>MinimumOSVersion</key>
+    <string>15.0</string>
+    <key>CFBundleSupportedPlatforms</key>
+    <array>
+        <string>iPhoneOS</string>
+    </array>
+    <key>UIDeviceFamily</key>
+    <array>
+        <integer>1</integer>
+        <integer>2</integer>
+    </array>
     <key>NSCameraUsageDescription</key>
     <string>MiCam requires camera access to stream low-latency HD/4K video to your Windows PC and OBS.</string>
     <key>NSMicrophoneUsageDescription</key>
