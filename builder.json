@@ -1,0 +1,17 @@
+{
+  "project": "MiCam",
+  "platform": "ios",
+  "github": {
+    "owner": "Samuel-07",
+    "repo": "IOS-CAM"
+  },
+  "ios": {
+    "path": "iOS/MiCam",
+    "scheme": "MiCam",
+    "signing": false
+  },
+  "mobai": {
+    "url": "http://localhost:8686",
+    "device_id": ""
+  }
+}
