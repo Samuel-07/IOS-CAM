@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import UIKit
+import Combine
 
 public struct CameraDeviceDescriptor: Identifiable, Hashable {
     public let id: String
@@ -39,7 +40,7 @@ public protocol CameraManagerDelegate: AnyObject {
     func cameraManager(_ manager: CameraManager, didOutput pixelBuffer: CVPixelBuffer, presentationTimeStamp: CMTime)
 }
 
-public class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     public static let shared = CameraManager()
     
     public weak var delegate: CameraManagerDelegate?

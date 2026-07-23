@@ -1,13 +1,14 @@
 import Foundation
 import Network
 import UIKit
+import Combine
 
 public protocol NetworkStreamerDelegate: AnyObject {
     func streamer(_ streamer: NetworkStreamer, didReceiveControlCommand command: MiCamControlCommand)
     func streamer(_ streamer: NetworkStreamer, clientStateChanged isConnected: Bool, connectionType: String)
 }
 
-public class NetworkStreamer {
+public class NetworkStreamer: ObservableObject {
     public static let shared = NetworkStreamer()
     public weak var delegate: NetworkStreamerDelegate?
     
