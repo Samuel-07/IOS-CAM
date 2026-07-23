@@ -2,6 +2,7 @@
 #include <shlobj.h>
 #include <string>
 #include <vector>
+#include <cstring>
 
 using namespace Gdiplus;
 
@@ -16,6 +17,41 @@ std::wstring Utf8ToWide(const std::string& s) {
     std::wstring out(len, L'\0');
     MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &out[0], len);
     return out;
+}
+
+// Byte-for-byte comparison so an already-current destination file can be treated as a no-op
+// success instead of attempting (and failing) a redundant overwrite. OBS keeps
+// micam-obs-plugin.dll memory-mapped while running, so CopyFileW onto it fails with a sharing
+// violation regardless of privilege level - re-running the installer while OBS is open used to
+// always report failure even when the deployed file already had the correct content.
+bool FilesAreIdentical(const std::wstring& pathA, const std::wstring& pathB) {
+    HANDLE ha = CreateFileW(pathA.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    if (ha == INVALID_HANDLE_VALUE) return false;
+    HANDLE hb = CreateFileW(pathB.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    if (hb == INVALID_HANDLE_VALUE) { CloseHandle(ha); return false; }
+
+    LARGE_INTEGER sizeA{}, sizeB{};
+    GetFileSizeEx(ha, &sizeA);
+    GetFileSizeEx(hb, &sizeB);
+
+    bool identical = false;
+    if (sizeA.QuadPart == sizeB.QuadPart) {
+        identical = true;
+        const DWORD bufSize = 65536;
+        std::vector<uint8_t> bufA(bufSize), bufB(bufSize);
+        for (;;) {
+            DWORD readA = 0, readB = 0;
+            BOOL okA = ReadFile(ha, bufA.data(), bufSize, &readA, NULL);
+            BOOL okB = ReadFile(hb, bufB.data(), bufSize, &readB, NULL);
+            if (!okA || !okB || readA != readB) { identical = (readA == 0 && readB == 0) && okA && okB; break; }
+            if (readA == 0) break;
+            if (memcmp(bufA.data(), bufB.data(), readA) != 0) { identical = false; break; }
+        }
+    }
+
+    CloseHandle(ha);
+    CloseHandle(hb);
+    return identical;
 }
 } // namespace
 
@@ -244,20 +280,23 @@ void MainWindowUI::InstallObsPlugin(HWND hwnd) {
     }
 
     std::wstring pluginDest = obsPluginsDir + L"\\micam-obs-plugin.dll";
-    BOOL copiedPlugin = CopyFileW(pluginSrc.c_str(), pluginDest.c_str(), FALSE);
-    bool accessDenied = !copiedPlugin && GetLastError() == ERROR_ACCESS_DENIED;
+    bool destExists = GetFileAttributesW(pluginDest.c_str()) != INVALID_FILE_ATTRIBUTES;
+    bool alreadyCurrent = destExists && FilesAreIdentical(pluginSrc, pluginDest);
 
-    bool vcamRegistered = true;
+    BOOL copiedPlugin = alreadyCurrent ? TRUE : CopyFileW(pluginSrc.c_str(), pluginDest.c_str(), FALSE);
+    DWORD copyError = copiedPlugin ? 0 : GetLastError();
+    bool accessDenied = !copiedPlugin && copyError == ERROR_ACCESS_DENIED;
+    bool sharingViolation = !copiedPlugin && (copyError == ERROR_SHARING_VIOLATION || copyError == ERROR_USER_MAPPED_FILE);
+
+    // Virtual camera OS registration isn't implemented yet (MiCamVirtualCamera.dll doesn't
+    // export DllRegisterServer) - attempted opportunistically, but its absence must never be
+    // reported as an OBS plugin install failure, since that's a separate, known gap.
     if (!accessDenied && GetFileAttributesW(vcamSrc.c_str()) != INVALID_FILE_ATTRIBUTES) {
         HMODULE hDll = LoadLibraryW(vcamSrc.c_str());
         if (hDll) {
             typedef HRESULT(STDAPICALLTYPE* pfnDllRegisterServer)();
             auto pRegister = (pfnDllRegisterServer)GetProcAddress(hDll, "DllRegisterServer");
-            if (pRegister) {
-                HRESULT hr = pRegister();
-                vcamRegistered = SUCCEEDED(hr);
-                if (hr == E_ACCESSDENIED) accessDenied = true;
-            }
+            if (pRegister) pRegister();
             FreeLibrary(hDll);
         }
     }
@@ -269,15 +308,20 @@ void MainWindowUI::InstallObsPlugin(HWND hwnd) {
 
     if (copiedPlugin) {
         MessageBoxW(hwnd,
-            isEs ? L"Plugin 'MiCam OBS' instalado correctamente.\n\nReinicia OBS Studio y búscalo en el menú de agregar fuentes (+) como 'MiCam OBS'." :
-                   L"'MiCam OBS' plugin installed successfully.\n\nRestart OBS Studio and look for 'MiCam OBS' in the add-source (+) menu.",
+            isEs ? L"Plugin 'MiCam OBS' instalado correctamente.\n\nReinicia OBS Studio y búscalo en el menú de agregar fuentes (+) como 'MiCam OBS'.\n\n(La cámara virtual de sistema es una función aparte, aún en desarrollo.)" :
+                   L"'MiCam OBS' plugin installed successfully.\n\nRestart OBS Studio and look for 'MiCam OBS' in the add-source (+) menu.\n\n(The system-wide virtual camera is a separate feature, still in development.)",
             L"MiCam OBS Installer", MB_OK | MB_ICONINFORMATION);
+    } else if (sharingViolation) {
+        MessageBoxW(hwnd,
+            isEs ? L"OBS Studio tiene el plugin abierto ahora mismo, así que no se puede reemplazar el archivo (esto no se soluciona con permisos de administrador). Cierra OBS Studio por completo e inténtalo de nuevo." :
+                   L"OBS Studio currently has the plugin file open, so it can't be replaced (administrator rights won't fix this). Close OBS Studio completely and try again.",
+            L"MiCam OBS Installer", MB_OK | MB_ICONWARNING);
     } else {
         wchar_t msg[512];
         _snwprintf_s(msg, _TRUNCATE,
             isEs ? L"No se pudo copiar el plugin a OBS (error %lu). Cierra OBS Studio si está abierto e inténtalo de nuevo." :
                    L"Couldn't copy the plugin into OBS (error %lu). Close OBS Studio if it's running and try again.",
-            GetLastError());
+            copyError);
         MessageBoxW(hwnd, msg, L"MiCam OBS Installer", MB_OK | MB_ICONWARNING);
     }
 }
