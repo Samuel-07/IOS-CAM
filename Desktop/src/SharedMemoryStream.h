@@ -1,6 +1,7 @@
 #ifndef MICAM_SHARED_MEMORY_STREAM_H
 #define MICAM_SHARED_MEMORY_STREAM_H
 
+#include <winsock2.h> // Must precede windows.h - see DeviceRegistry.h comment
 #include <windows.h>
 #include <cstdint>
 #include <string>

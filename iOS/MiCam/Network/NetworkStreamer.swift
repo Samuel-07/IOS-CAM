@@ -11,30 +11,49 @@ public protocol NetworkStreamerDelegate: AnyObject {
 public class NetworkStreamer: ObservableObject {
     public static let shared = NetworkStreamer()
     public weak var delegate: NetworkStreamerDelegate?
-    
+
     private var listener: NWListener?
     private var activeConnection: NWConnection?
     private let queue = DispatchQueue(label: "com.micam.networkQueue", qos: .userInteractive)
-    
+
     @Published public private(set) var isConnected: Bool = false
     @Published public private(set) var currentConnectionType: String = "Disconnected"
-    
-    public init() {}
-    
+
+    /// Stable identifier for this physical device, persisted across launches so the Windows
+    /// app can recognize "this is the same iPhone" whether it's seen over USB (usbmuxd) or
+    /// WiFi (mDNS). Broadcast in the Bonjour TXT record and echoed in the handshake reply.
+    public static let deviceUuid: String = {
+        let key = "com.micam.deviceUuid"
+        if let existing = UserDefaults.standard.string(forKey: key) {
+            return existing
+        }
+        let generated = UUID().uuidString
+        UserDefaults.standard.set(generated, forKey: key)
+        return generated
+    }()
+
+    public init() {
+        UIDevice.current.isBatteryMonitoringEnabled = true
+    }
+
     public func startServer(port: UInt16 = ProtocolConstants.defaultPort) {
         stopServer()
-        
+
         do {
             let nwPort = NWEndpoint.Port(rawValue: port)!
             let parameters = NWParameters.tcp
             parameters.allowLocalEndpointReuse = true
-            
+
             listener = try NWListener(using: parameters, on: nwPort)
-            
-            // Advertise via Bonjour / mDNS for automatic WiFi discovery on Windows
+
+            // Advertise via Bonjour / mDNS for automatic WiFi discovery on Windows.
+            // The "id" TXT record lets Windows match this WiFi-discovered service to the
+            // same device it may already know about via a USB (usbmuxd) connection.
             let deviceName = UIDevice.current.name
-            listener?.service = NWListener.Service(name: deviceName, type: ProtocolConstants.bonjourType)
-            
+            var txt = NWTXTRecord()
+            txt["id"] = Self.deviceUuid
+            listener?.service = NWListener.Service(name: deviceName, type: ProtocolConstants.bonjourType, txtRecord: txt)
+
             listener?.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
@@ -88,6 +107,7 @@ public class NetworkStreamer: ObservableObject {
                     self.delegate?.streamer(self, clientStateChanged: true, connectionType: connType)
                 }
                 print("[NetworkStreamer] Client connected via \(connType)")
+                self.sendHandshake(connection: connection)
                 self.readControlLoop(connection: connection)
                 
             case .failed, .cancelled:
@@ -147,14 +167,61 @@ public class NetworkStreamer: ObservableObject {
     private func processIncomingPacket(_ data: Data) {
         let magic = data.withUnsafeBytes { $0.load(fromByteOffset: 0, as: UInt32.self).bigEndian }
         guard magic == ProtocolConstants.magic else { return }
-        
+
         let typeRaw = data[4]
         guard let type = MiCamPacketType(rawValue: typeRaw) else { return }
-        
+
         if type == .videoConfigCmd && data.count >= 16 + MemoryLayout<MiCamControlCommand>.size {
             let cmdData = data.subdata(in: 16..<16 + MemoryLayout<MiCamControlCommand>.size)
             let cmd = cmdData.withUnsafeBytes { $0.load(as: MiCamControlCommand.self) }
             delegate?.streamer(self, didReceiveControlCommand: cmd)
+        } else if type == .handshakeReq {
+            // Windows can explicitly re-request identity (e.g. after reconnecting); the
+            // connection-ready handler already sends one proactively so this just re-sends.
+            if let connection = activeConnection {
+                sendHandshake(connection: connection)
+            }
         }
+    }
+
+    // Identifies this physical device to Windows: stable UUID, name, hardware model,
+    // battery, and which lenses are available. Sent unsolicited right after connecting
+    // (and again on explicit HandshakeReq) so the desktop app never has to show placeholder text.
+    private func sendHandshake(connection: NWConnection) {
+        var machine = utsname()
+        uname(&machine)
+        let modelIdentifier = withUnsafePointer(to: &machine.machine) {
+            $0.withMemoryRebound(to: CChar.self, capacity: 1) { String(cString: $0) }
+        }
+
+        let lensMask = CameraManager.shared.availableDevices.reduce(UInt8(0)) { mask, device in
+            mask | MiCamLensFlag.mask(for: device.lensType)
+        }
+
+        let battery = UIDevice.current.batteryLevel
+        let batteryPercent: UInt8 = battery < 0 ? 100 : UInt8(max(0, min(100, battery * 100)))
+        let charging = UIDevice.current.batteryState == .charging || UIDevice.current.batteryState == .full
+
+        let response = MiCamHandshakeResponse(
+            deviceUuid: Self.deviceUuid,
+            deviceName: UIDevice.current.name,
+            modelName: modelIdentifier,
+            batteryLevel: batteryPercent,
+            isCharging: charging ? 1 : 0,
+            availableLensMask: lensMask
+        )
+
+        let payload = response.toData()
+        let header = MiCamPacketHeader(type: .handshakeResp, payloadSize: UInt32(payload.count))
+
+        var packet = Data()
+        packet.append(header.toData())
+        packet.append(payload)
+
+        connection.send(content: packet, completion: .contentProcessed({ error in
+            if let error = error {
+                print("[NetworkStreamer] Handshake send error: \(error)")
+            }
+        }))
     }
 }

@@ -1,6 +1,7 @@
 #ifndef MICAM_VIRTUAL_CAMERA_MF_H
 #define MICAM_VIRTUAL_CAMERA_MF_H
 
+#include <winsock2.h> // Must precede windows.h - see SharedMemoryStream.h
 #include <windows.h>
 #include <mfapi.h>
 #include <mfidl.h>

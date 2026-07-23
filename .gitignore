@@ -7,6 +7,10 @@ obj/
 *.user
 *.suo
 
+# Vendored OBS SDK (fetched/generated locally by CMake developers, not part of our source -
+# see CMakeLists.txt comment on micam-obs-plugin for how to regenerate)
+vendor/
+
 # OS generated files
 .DS_Store
 Thumbs.db

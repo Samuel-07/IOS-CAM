@@ -108,7 +108,7 @@ public struct MiCamControlCommand {
     public var targetFps: UInt16
     public var torchEnabled: UInt8
     public var zoomFactor: Float
-    
+
     public init(lens: MiCamCameraLens = .wide, targetWidth: UInt16 = 1920, targetHeight: UInt16 = 1080, targetFps: UInt16 = 60, torchEnabled: Bool = false, zoomFactor: Float = 1.0) {
         self.lens = lens.rawValue
         self.targetWidth = targetWidth
@@ -116,6 +116,66 @@ public struct MiCamControlCommand {
         self.targetFps = targetFps
         self.torchEnabled = torchEnabled ? 1 : 0
         self.zoomFactor = zoomFactor
+    }
+}
+
+public struct MiCamLensFlag {
+    public static let wide: UInt8      = 1 << 0
+    public static let ultraWide: UInt8 = 1 << 1
+    public static let telephoto: UInt8 = 1 << 2
+    public static let front: UInt8     = 1 << 3
+    public static let macro: UInt8     = 1 << 4
+
+    public static func mask(for lens: MiCamCameraLens) -> UInt8 {
+        switch lens {
+        case .wide: return wide
+        case .ultraWide: return ultraWide
+        case .telephoto: return telephoto
+        case .front: return front
+        case .macro: return macro
+        }
+    }
+}
+
+// Mirrors Shared/protocol.h MiCamHandshakeResponse byte-for-byte (packed, 137 bytes).
+// Sent by iOS -> Windows right after connection so the desktop app can show real
+// device identity/battery instead of placeholder text, and correlate the same
+// physical iPhone across a USB and a WiFi connection via `deviceUuid`.
+public struct MiCamHandshakeResponse {
+    public static let byteSize = 37 + 64 + 32 + 1 + 1 + 1 + 1 // 137
+
+    public var deviceUuid: String
+    public var deviceName: String
+    public var modelName: String
+    public var batteryLevel: UInt8
+    public var isCharging: UInt8
+    public var availableLensMask: UInt8
+
+    public init(deviceUuid: String, deviceName: String, modelName: String, batteryLevel: UInt8, isCharging: UInt8, availableLensMask: UInt8) {
+        self.deviceUuid = deviceUuid
+        self.deviceName = deviceName
+        self.modelName = modelName
+        self.batteryLevel = batteryLevel
+        self.isCharging = isCharging
+        self.availableLensMask = availableLensMask
+    }
+
+    private static func fixedCString(_ s: String, count: Int) -> Data {
+        var bytes = Array(s.utf8.prefix(count - 1))
+        while bytes.count < count { bytes.append(0) }
+        return Data(bytes)
+    }
+
+    public func toData() -> Data {
+        var data = Data()
+        data.append(Self.fixedCString(deviceUuid, count: 37))
+        data.append(Self.fixedCString(deviceName, count: 64))
+        data.append(Self.fixedCString(modelName, count: 32))
+        data.append(batteryLevel)
+        data.append(isCharging)
+        data.append(availableLensMask)
+        data.append(UInt8(0)) // reserved
+        return data
     }
 }
 

@@ -77,6 +77,28 @@ struct MiCamTelemetryData {
     uint8_t  connectionType;    // 0: USB (usbmuxd), 1: WiFi
 };
 
+// Bitmask flags describing which lenses a device exposes (MiCamHandshakeResponse.availableLensMask)
+enum MiCamLensFlag : uint8_t {
+    LensFlagWide      = 1 << 0,
+    LensFlagUltraWide = 1 << 1,
+    LensFlagTelephoto = 1 << 2,
+    LensFlagFront     = 1 << 3,
+    LensFlagMacro     = 1 << 4
+};
+
+// Sent by iOS -> Windows immediately after a connection is established (reply to HandshakeReq).
+// Identifies the physical device with a stable app-generated UUID so the same iPhone can be
+// correlated across a USB (usbmuxd) connection and a WiFi (mDNS) connection.
+struct MiCamHandshakeResponse {
+    char     deviceUuid[37];       // App-persisted UUID string (36 chars + NUL), stable across USB/WiFi
+    char     deviceName[64];       // e.g. "Samuel's iPhone" (UIDevice.current.name)
+    char     modelName[32];        // e.g. "iPhone 15 Pro"
+    uint8_t  batteryLevel;         // 0-100
+    uint8_t  isCharging;           // 0 or 1
+    uint8_t  availableLensMask;    // Combination of MiCamLensFlag
+    uint8_t  reserved;
+};
+
 #pragma pack(pop)
 
 #endif // MICAM_SHARED_PROTOCOL_H

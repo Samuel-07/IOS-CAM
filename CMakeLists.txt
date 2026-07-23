@@ -12,7 +12,6 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/Shared
     ${CMAKE_CURRENT_SOURCE_DIR}/Desktop/src
     ${CMAKE_CURRENT_SOURCE_DIR}/VirtualCamera/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/OBSPlugin/src
 )
 
 # Desktop Control Center Executable (Pure Windows GUI - No Terminal Window)
@@ -20,10 +19,13 @@ add_executable(MiCamDesktop WIN32
     Desktop/src/main.cpp
     Desktop/src/UIWindow.cpp
     Desktop/src/DeviceManager.cpp
+    Desktop/src/UsbMuxClient.cpp
+    Desktop/src/MdnsBrowser.cpp
     Desktop/src/SharedMemoryStream.cpp
     Desktop/src/resource.rc
+    Shared/DeviceRegistry.cpp
 )
-target_link_libraries(MiCamDesktop PRIVATE ws2_32 Ole32 User32 Gdi32)
+target_link_libraries(MiCamDesktop PRIVATE ws2_32 Ole32 User32 Gdi32 Shlwapi Shell32)
 
 # Virtual Camera Shared DLL
 add_library(MiCamVirtualCamera SHARED
@@ -32,9 +34,23 @@ add_library(MiCamVirtualCamera SHARED
 )
 target_link_libraries(MiCamVirtualCamera PRIVATE mfplat mfuuid Ole32)
 
-# OBS Studio Plugin Shared DLL
+# OBS Studio Plugin Shared DLL - linked against the real libobs SDK.
+#
+# vendor/obs-studio/libobs contains the real headers (sparse-checked-out from the
+# obsproject/obs-studio tag matching the installed OBS Studio version), and
+# vendor/obs-lib/obs.lib is an import library generated from the installed obs.dll's export
+# table (there's no official dev/SDK package shipped by the OBS installer, so this is the
+# standard technique for building a plugin against an existing OBS install: `dumpbin /exports`
+# + a generated .def + `lib.exe /def:...`).
 add_library(micam-obs-plugin SHARED
     OBSPlugin/src/micam_obs_plugin.cpp
     Desktop/src/SharedMemoryStream.cpp
+    Shared/DeviceRegistry.cpp
 )
-target_link_libraries(micam-obs-plugin PRIVATE Ole32)
+target_include_directories(micam-obs-plugin PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/obs-studio/libobs
+)
+target_link_libraries(micam-obs-plugin PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/obs-lib/obs.lib
+    Ole32
+)

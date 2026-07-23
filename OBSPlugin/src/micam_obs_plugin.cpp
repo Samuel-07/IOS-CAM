@@ -1,33 +1,37 @@
+// Built against the real OBS Studio libobs SDK (vendor/obs-studio/libobs, checked out at the
+// exact tag matching the installed OBS Studio version) and linked against an import library
+// generated from the installed obs.dll's export table. The previous version of this file
+// compiled against a hand-rolled local mock of obs-module.h, which meant obs_register_source /
+// obs_module_load never spoke OBS's real module ABI - the resulting DLL could never have been
+// loaded by actual OBS Studio no matter where it was copied.
 #include <obs-module.h>
 #include "../../Desktop/src/SharedMemoryStream.h"
+#include "../../Shared/DeviceRegistry.h"
 #include "../../Shared/protocol.h"
 #include <string>
 #include <vector>
 
 OBS_DECLARE_MODULE()
-OBS_MODULE_USE_DEFAULT_LOCALE("micam-obs-plugin", "en-US")
 
 struct micam_source_data {
     obs_source_t* source;
     std::string stream_name;
     SharedMemoryStreamReader* reader;
-    uint32_t width;
-    uint32_t height;
     std::vector<uint8_t> frame_buffer;
 };
 
-static const char* micam_get_name(void* unused) {
+static const char* micam_get_name(void*) {
     return "MiCam OBS";
 }
+
+static void micam_update(void* data, obs_data_t* settings);
 
 static void* micam_create(obs_data_t* settings, obs_source_t* source) {
     micam_source_data* context = new micam_source_data();
     context->source = source;
-    context->stream_name = "Global\\MiCam_Stream_1";
-    context->reader = new SharedMemoryStreamReader(context->stream_name);
-    context->width = 1920;
-    context->height = 1080;
+    context->reader = nullptr;
     context->frame_buffer.resize(3840 * 2160 * 4);
+    micam_update(context, settings);
     return context;
 }
 
@@ -39,7 +43,19 @@ static void micam_destroy(void* data) {
     }
 }
 
-static void micam_video_render(void* data, gs_effect_t* effect) {
+static void micam_update(void* data, obs_data_t* settings) {
+    micam_source_data* context = static_cast<micam_source_data*>(data);
+    const char* streamName = obs_data_get_string(settings, "device_id");
+    if (!streamName || !*streamName) return;
+
+    if (context->stream_name != streamName) {
+        context->stream_name = streamName;
+        delete context->reader;
+        context->reader = new SharedMemoryStreamReader(context->stream_name);
+    }
+}
+
+static void micam_video_render(void* data, gs_effect_t*) {
     micam_source_data* context = static_cast<micam_source_data*>(data);
     if (!context || !context->reader) return;
 
@@ -57,9 +73,13 @@ static void micam_video_render(void* data, gs_effect_t* effect) {
     }
 }
 
-static obs_properties_t* micam_get_properties(void* data) {
+// Populated fresh every time the source's properties dialog is opened, by reading the live
+// device registry the Desktop app (MiCamDesktop.exe) publishes to shared memory. This is what
+// makes "OBS actually recognizes both connected iPhones" real: the two processes have no other
+// shared state, so without this the plugin has no way to know what's plugged in right now.
+static obs_properties_t* micam_get_properties(void*) {
     obs_properties_t* props = obs_properties_create();
-    
+
     obs_property_t* device_list = obs_properties_add_list(
         props,
         "device_id",
@@ -67,37 +87,34 @@ static obs_properties_t* micam_get_properties(void* data) {
         OBS_COMBO_TYPE_LIST,
         OBS_COMBO_FORMAT_STRING
     );
-    
-    obs_property_list_add_string(device_list, "iPhone 1 (USB / Port 50000)", "Global\\MiCam_Stream_1");
-    obs_property_list_add_string(device_list, "iPhone 2 (WiFi / Port 50001)", "Global\\MiCam_Stream_2");
-    
-    obs_property_t* lens_list = obs_properties_add_list(
-        props,
-        "camera_lens",
-        "Camera Optics Lens",
-        OBS_COMBO_TYPE_LIST,
-        OBS_COMBO_FORMAT_INT
-    );
-    obs_property_list_add_int(lens_list, "Main Wide Angle (1x)", 0);
-    obs_property_list_add_int(lens_list, "Ultra Wide (0.5x)", 1);
-    obs_property_list_add_int(lens_list, "Telephoto (3x)", 2);
-    obs_property_list_add_int(lens_list, "Front Selfie", 3);
+
+    DeviceRegistryReader registryReader;
+    std::vector<DeviceRegistryEntry> devices = registryReader.Read();
+
+    if (devices.empty()) {
+        obs_property_list_add_string(device_list, "No devices detected - open MiCam Studio Pro", "");
+    } else {
+        for (const auto& dev : devices) {
+            obs_property_list_add_string(device_list, dev.displayName, dev.streamName);
+        }
+    }
 
     return props;
 }
 
-static struct obs_source_info micam_source_info = {
-    .id             = "micam_obs",
-    .type           = OBS_SOURCE_TYPE_INPUT,
-    .output_flags   = OBS_SOURCE_VIDEO | OBS_SOURCE_ASYNC_VIDEO,
-    .get_name       = micam_get_name,
-    .create         = micam_create,
-    .destroy        = micam_destroy,
-    .get_properties = micam_get_properties,
-    .video_render   = micam_video_render,
-};
+static struct obs_source_info micam_source_info = {};
 
 bool obs_module_load(void) {
+    micam_source_info.id = "micam_obs";
+    micam_source_info.type = OBS_SOURCE_TYPE_INPUT;
+    micam_source_info.output_flags = OBS_SOURCE_ASYNC_VIDEO;
+    micam_source_info.get_name = micam_get_name;
+    micam_source_info.create = micam_create;
+    micam_source_info.destroy = micam_destroy;
+    micam_source_info.update = micam_update;
+    micam_source_info.get_properties = micam_get_properties;
+    micam_source_info.video_render = micam_video_render;
+
     obs_register_source(&micam_source_info);
     blog(LOG_INFO, "[MiCam OBS Plugin] Loaded successfully as 'MiCam OBS'.");
     return true;
