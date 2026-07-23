@@ -125,10 +125,26 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
         }
     }
     
+    // Guards selectDevice/configureFormat against overlapping reconfigurations. Only ever
+    // touched from within captureQueue.async closures (captureQueue is serial, so this needs
+    // no separate locking) - the previous code had no such guard, so rapid repeated taps on a
+    // lens/resolution button (natural when there's no visible feedback that anything happened)
+    // each queued their own full AVCaptureSession beginConfiguration/commitConfiguration cycle.
+    // A burst of 8+ of those firing back-to-back is exactly what was captured in the device log
+    // as "screen vibrating" and a lens button that "hangs" - it wasn't hung, it was working
+    // through a backlog of redundant reconfigurations.
+    private var isReconfiguring = false
+
     public func selectDevice(_ descriptor: CameraDeviceDescriptor) {
         captureQueue.async { [weak self] in
             guard let self = self else { return }
-            
+            guard !self.isReconfiguring else { return }
+            // Re-tapping the lens you're already on used to still tear down and rebuild the
+            // whole capture pipeline (and silently reset resolution/FPS back to the 1080p60
+            // default via populateFormats below) - now a genuine no-op.
+            if descriptor.id == self.currentDevice?.id { return }
+            self.isReconfiguring = true
+
             self.captureSession.beginConfiguration()
             
             if let currentInput = self.activeDeviceInput {
@@ -157,13 +173,14 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
                     kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)
                 ]
                 self.videoDataOutput.setSampleBufferDelegate(self, queue: self.captureQueue)
-                
+
                 if self.captureSession.canAddOutput(self.videoDataOutput) {
                     self.captureSession.addOutput(self.videoDataOutput)
                 }
             }
-            
+
             self.captureSession.commitConfiguration()
+            self.isReconfiguring = false
         }
     }
     
@@ -274,6 +291,9 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
     public func configureFormat(_ formatDesc: CameraFormatDescriptor, targetFps: Double) {
         captureQueue.async { [weak self] in
             guard let self = self, let device = self.currentDevice?.device else { return }
+            guard !self.isReconfiguring else { return }
+            self.isReconfiguring = true
+            defer { self.isReconfiguring = false }
 
             // AVFoundation raises an uncatchable NSException (not a Swift `Error`) if you set
             // activeVideoMin/MaxFrameDuration outside what THIS SPECIFIC format actually
