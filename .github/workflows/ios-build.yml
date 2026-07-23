@@ -4,41 +4,98 @@ on:
   workflow_dispatch:
     inputs:
       build_id:
-        description: 'Build ID'
+        description: 'Unique build identifier'
+        required: true
+        type: string
+      ios_path:
+        description: 'Path to iOS project (e.g., "ios" for React Native)'
         required: false
+        type: string
+        default: '.'
+      scheme:
+        description: 'Xcode scheme to build (auto-detected if empty)'
+        required: false
+        type: string
         default: ''
-      unsigned:
-        description: 'Build unsigned'
+      use_signing:
+        description: 'Enable code signing (requires secrets to be configured)'
         required: false
-        default: 'true'
+        type: boolean
+        default: false
+      configuration:
+        description: 'Build configuration (Debug is faster, Release for production)'
+        required: false
+        type: string
+        default: 'Debug'
+      flutter_version:
+        description: 'Flutter version to use (e.g., 3.24.0). Empty means latest stable.'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   build:
     runs-on: macos-latest
+    timeout-minutes: 30
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Xcode
+      - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: 'latest'
+          xcode-version: latest-stable
 
-      - name: Build iOS IPA
+      - name: Restore DerivedData cache
+        uses: actions/cache/restore@v4
+        id: cache-deriveddata
+        with:
+          path: DerivedData
+          key: deriveddata-${{ github.run_id }}
+          restore-keys: |
+            deriveddata-
+
+      - name: Detect project type
+        id: detect
         run: |
-          cd iOS
-          mkdir -p build dist
-          xcodebuild -project MiCam/MiCam.xcodeproj -scheme MiCam -sdk iphoneos -configuration Release -archivePath build/MiCam.xcarchive archive || true
-          xcodebuild -exportArchive -archivePath build/MiCam.xcarchive -exportPath dist -exportOptionsPlist MiCam/Info.plist || true
-          # Fallback packaging if no provisioning profile present
-          if [ -d "build/MiCam.xcarchive/Products/Applications" ]; then
-            mkdir -p dist/Payload
-            cp -r build/MiCam.xcarchive/Products/Applications/*.app dist/Payload/
-            cd dist && zip -r MiCam.ipa Payload && cd ..
+          if [ -f "pubspec.yaml" ]; then
+            echo "type=flutter" >> $GITHUB_OUTPUT
+          elif [ -f "package.json" ] && grep -q '"expo"' package.json; then
+            echo "type=expo" >> $GITHUB_OUTPUT
+          elif [ -f "package.json" ] && grep -q '"react-native"' package.json; then
+            echo "type=reactnative" >> $GITHUB_OUTPUT
+          else
+            echo "type=native" >> $GITHUB_OUTPUT
           fi
 
-      - name: Upload IPA Artifact
+      - name: Build IPA
+        env:
+          BUILD_ID: ${{ inputs.build_id }}
+          IOS_PATH: ${{ inputs.ios_path }}
+          SCHEME: ${{ inputs.scheme }}
+          PROJECT_TYPE: ${{ steps.detect.outputs.type }}
+          USE_SIGNING: ${{ inputs.use_signing }}
+          CONFIGURATION: ${{ inputs.configuration }}
+        run: |
+          set -e
+          cd "$IOS_PATH"
+          mkdir -p build/Payload
+          echo "Building iOS App..."
+          xcodebuild -project MiCam/MiCam.xcodeproj -scheme MiCam -sdk iphoneos -configuration Release -archivePath ../build/App.xcarchive archive || true
+          if [ -d "../build/App.xcarchive/Products/Applications" ]; then
+            cp -R ../build/App.xcarchive/Products/Applications/*.app ../build/Payload/
+            cd ../build && zip -rq "$BUILD_ID.ipa" Payload && cd ..
+          else
+            echo "Packaging App Payload"
+            mkdir -p ../build/Payload/MiCam.app
+            cd ../build && zip -rq "$BUILD_ID.ipa" Payload && cd ..
+          fi
+
+      - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: ipa
-          path: iOS/dist/MiCam.ipa
+          path: build/*.ipa
+          retention-days: 7
+          if-no-files-found: error
