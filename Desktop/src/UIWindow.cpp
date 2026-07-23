@@ -81,6 +81,11 @@ bool MainWindowUI::CreateAndShow(int nCmdShow) {
     });
     m_deviceManager.StartDiscovery();
 
+    // Nothing previously invalidated the window when a new decoded video frame arrived - the
+    // preview only ever repainted on device-list changes (~every 2s) or clicks. ~15fps is
+    // plenty for a preview panel without repainting the whole window unnecessarily often.
+    SetTimer(m_hwnd, 1, 66, NULL);
+
     return true;
 }
 
@@ -143,7 +148,12 @@ LRESULT MainWindowUI::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
     case WM_ERASEBKGND:
         return 1;
 
+    case WM_TIMER:
+        InvalidateRect(hwnd, NULL, FALSE);
+        return 0;
+
     case WM_DESTROY:
+        KillTimer(hwnd, 1);
         m_deviceManager.StopDiscovery();
         PostQuitMessage(0);
         return 0;
@@ -553,15 +563,37 @@ void MainWindowUI::DrawMainPreview(Graphics& g, int x, int y, int width, int hei
     int cx = viewX + viewW / 2;
     int cy = viewY + viewH / 2;
 
+    bool drewFrame = false;
+    if (selected && selected->isConnected) {
+        std::vector<uint8_t> rgba;
+        uint32_t frameW = 0, frameH = 0;
+        if (m_deviceManager.GetLatestFrame(selected->id, rgba, frameW, frameH) && frameW > 0 && frameH > 0) {
+            // Decoded frames are stored RGBA (matches what the OBS plugin declares via
+            // VIDEO_FORMAT_RGBA), but GDI+'s 32bppARGB format is byte-order BGRA in memory -
+            // swap R/B into a scratch buffer rather than mutating the shared decode buffer.
+            std::vector<uint8_t> bgra(rgba.size());
+            for (size_t i = 0; i + 3 < rgba.size(); i += 4) {
+                bgra[i + 0] = rgba[i + 2];
+                bgra[i + 1] = rgba[i + 1];
+                bgra[i + 2] = rgba[i + 0];
+                bgra[i + 3] = rgba[i + 3];
+            }
+
+            Bitmap frameBitmap(frameW, frameH, frameW * 4, PixelFormat32bppARGB, bgra.data());
+            if (frameBitmap.GetLastStatus() == Ok) {
+                g.DrawImage(&frameBitmap, viewX, viewY, viewW, viewH);
+                drewFrame = true;
+            }
+        }
+    }
+
     if (!selected || !selected->isConnected) {
         const wchar_t* noDeviceText = isEs ? L"NINGUN DISPOSITIVO SELECCIONADO" : L"NO DEVICE SELECTED";
         g.DrawString(noDeviceText, -1, &streamTitleFont, PointF((REAL)cx - 160, (REAL)cy - 20), &grayBrush);
         Font subFont(L"Segoe UI", 9, FontStyleRegular);
         const wchar_t* subText = isEs ? L"Conecta un iPhone y selecciona su tarjeta en el panel izquierdo" : L"Connect an iPhone and select its card in the left panel";
         g.DrawString(subText, -1, &subFont, PointF((REAL)cx - 195, (REAL)cy + 8), &grayBrush);
-    } else {
-        // Honest placeholder: the H.264/HEVC decode pipeline that would turn the iPhone's
-        // encoded stream into on-screen pixels here isn't implemented yet (see project docs).
+    } else if (!drewFrame) {
         std::wstring nameW = Utf8ToWide(selected->name);
         wchar_t titleLine[192];
         _snwprintf_s(titleLine, _TRUNCATE, isEs ? L"%s - CONECTADO" : L"%s - CONNECTED", nameW.c_str());
@@ -569,9 +601,9 @@ void MainWindowUI::DrawMainPreview(Graphics& g, int x, int y, int width, int hei
 
         Font subFont(L"Segoe UI", 9, FontStyleRegular);
         const wchar_t* subText = isEs ?
-            L"Decodificador de video en desarrollo (ver Docs) - controles remotos ya funcionan" :
-            L"Video decoder still in development (see Docs) - remote controls already work";
-        g.DrawString(subText, -1, &subFont, PointF((REAL)cx - 220, (REAL)cy), &grayBrush);
+            L"Esperando primer fotograma de video..." :
+            L"Waiting for the first video frame...";
+        g.DrawString(subText, -1, &subFont, PointF((REAL)cx - 130, (REAL)cy), &grayBrush);
     }
 
     // Live Badge Pill (Top Left) - reflects real selection state, not a hardcoded "LIVE".
@@ -580,9 +612,11 @@ void MainWindowUI::DrawMainPreview(Graphics& g, int x, int y, int width, int hei
     g.DrawRectangle(&borderPen, viewX + 15, viewY + 15, 235, 32);
     Font badgeFont(L"Segoe UI", 9, FontStyleBold);
     SolidBrush whiteBrush(Color(255, 255, 255, 255));
-    const wchar_t* badgeText = (selected && selected->isConnected)
-        ? (isEs ? L"DISPOSITIVO CONECTADO" : L"DEVICE CONNECTED")
-        : (isEs ? L"SIN SEÑAL" : L"NO SIGNAL");
+    const wchar_t* badgeText = drewFrame
+        ? (isEs ? L"EN VIVO" : L"LIVE")
+        : (selected && selected->isConnected)
+            ? (isEs ? L"DISPOSITIVO CONECTADO" : L"DEVICE CONNECTED")
+            : (isEs ? L"SIN SEÑAL" : L"NO SIGNAL");
     g.DrawString(badgeText, -1, &badgeFont, PointF((REAL)viewX + 25, (REAL)viewY + 22), &whiteBrush);
 
     // Quick Action Bar under Preview

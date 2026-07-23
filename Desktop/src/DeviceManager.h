@@ -3,6 +3,8 @@
 
 #include "../../Shared/protocol.h"
 #include "../../Shared/DeviceRegistry.h"
+#include "SharedMemoryStream.h"
+#include "H264Decoder.h"
 #include <winsock2.h>
 #include <string>
 #include <vector>
@@ -53,6 +55,12 @@ public:
     // no WiFi endpoint has been discovered yet for this device.
     bool SwitchToWifi(const std::string& deviceId);
 
+    // Pulls the most recently decoded RGBA frame for a device, for the Desktop app's own
+    // preview panel (the virtual camera and OBS plugin read the same data independently via
+    // the per-device SharedMemoryStreamWriter this class also maintains). Returns false if
+    // nothing has been decoded yet.
+    bool GetLatestFrame(const std::string& deviceId, std::vector<uint8_t>& outRgba, uint32_t& outWidth, uint32_t& outHeight);
+
 private:
     struct LiveConnection {
         std::mutex        fieldMutex;
@@ -64,6 +72,7 @@ private:
         int                usbMuxDeviceId{ -1 };
         std::string        ip;
         uint16_t           port{ 0 };
+        std::string        registryKey; // Stable identity used for the shared-memory stream name
 
         std::string uuid;
         std::string name{ "Connecting..." };
@@ -75,6 +84,20 @@ private:
         bool        wifiAvailable{ false };
         std::string wifiIp;
         uint16_t    wifiPort{ 0 };
+
+        // Decode pipeline state - only ever touched from this connection's own ReaderLoop
+        // thread, so it doesn't need fieldMutex.
+        std::unique_ptr<H264Decoder> decoder;
+        uint32_t decoderWidth{ 0 };
+        uint32_t decoderHeight{ 0 };
+        std::unique_ptr<SharedMemoryStreamWriter> streamWriter;
+
+        // Latest decoded frame, for the Desktop UI's own preview (separate mutex from
+        // fieldMutex so painting the UI never blocks on/is blocked by decode work).
+        std::mutex frameMutex;
+        std::vector<uint8_t> latestRgba;
+        uint32_t frameWidth{ 0 };
+        uint32_t frameHeight{ 0 };
     };
 
     void DiscoveryThreadLoop();

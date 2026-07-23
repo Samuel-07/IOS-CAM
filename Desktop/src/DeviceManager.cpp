@@ -177,6 +177,7 @@ void DeviceManager::ReconcileUsbDevices() {
         if (sock == INVALID_SOCKET) continue; // App likely not running on that device yet
 
         auto conn = StartConnection(sock, /*isUsb=*/true, mux.deviceId, "127.0.0.1", kMiCamPort);
+        conn->registryKey = mux.udid;
         m_connections.push_back({ mux.udid, conn });
     }
 }
@@ -215,6 +216,7 @@ void DeviceManager::ReconcileMdnsDevices() {
         if (sock == INVALID_SOCKET) continue;
 
         auto conn = StartConnection(sock, /*isUsb=*/false, -1, svc.ipAddress, svc.port);
+        conn->registryKey = svc.deviceUuid;
         {
             std::lock_guard<std::mutex> fieldLock(conn->fieldMutex);
             conn->uuid = svc.deviceUuid;
@@ -272,8 +274,38 @@ void DeviceManager::ReaderLoop(std::shared_ptr<LiveConnection> conn) {
             std::lock_guard<std::mutex> fieldLock(conn->fieldMutex);
             conn->battery = tel->batteryLevel;
             conn->charging = tel->isCharging;
+        } else if (type == MiCamPacketType::VideoFrameData && payload.size() > sizeof(MiCamVideoFrameHeader)) {
+            const auto* vh = reinterpret_cast<const MiCamVideoFrameHeader*>(payload.data());
+            const uint8_t* naluData = payload.data() + sizeof(MiCamVideoFrameHeader);
+            uint32_t naluSize = (uint32_t)(payload.size() - sizeof(MiCamVideoFrameHeader));
+
+            // Decoder state is only ever touched from this connection's own ReaderLoop thread,
+            // so no lock is needed around it (unlike fieldMutex-guarded identity/status fields).
+            if (!conn->decoder || conn->decoderWidth != vh->width || conn->decoderHeight != vh->height) {
+                conn->decoder = std::make_unique<H264Decoder>();
+                conn->decoder->Initialize(vh->width, vh->height);
+                conn->decoderWidth = vh->width;
+                conn->decoderHeight = vh->height;
+            }
+
+            std::vector<uint8_t> rgba;
+            uint32_t outW = 0, outH = 0;
+            if (conn->decoder->Decode(naluData, naluSize, rgba, outW, outH)) {
+                {
+                    std::lock_guard<std::mutex> frameLock(conn->frameMutex);
+                    conn->latestRgba = rgba;
+                    conn->frameWidth = outW;
+                    conn->frameHeight = outH;
+                }
+
+                if (!conn->streamWriter && !conn->registryKey.empty()) {
+                    conn->streamWriter = std::make_unique<SharedMemoryStreamWriter>("Global\\MiCam_Stream_" + conn->registryKey);
+                }
+                if (conn->streamWriter) {
+                    conn->streamWriter->WriteFrame(rgba.data(), (uint32_t)rgba.size(), outW, outH, outW * 4, header.timestampUs);
+                }
+            }
         }
-        // Video frame data isn't decoded on the Windows side yet - intentionally ignored here.
     }
 
     conn->connected = false;
@@ -321,7 +353,11 @@ void DeviceManager::PublishSnapshot() {
 
             if (conn->connected) {
                 DeviceRegistryEntry entry{};
-                std::string key = !dev.uuid.empty() ? dev.uuid : dev.id;
+                // Matches the key ReaderLoop uses to name this device's SharedMemoryStreamWriter
+                // (registryKey, set once at connection creation and stable across USB/WiFi
+                // transport switches) - using anything else here would point OBS/the virtual
+                // camera at a stream name nothing is actually writing to.
+                std::string key = conn->registryKey.empty() ? dev.id : conn->registryKey;
                 strncpy_s(entry.uuid, key.c_str(), sizeof(entry.uuid) - 1);
                 std::string label = dev.name + " (" + (conn->isUsb ? "USB" : "WiFi") + ")";
                 strncpy_s(entry.displayName, label.c_str(), sizeof(entry.displayName) - 1);
@@ -408,5 +444,23 @@ bool DeviceManager::SwitchToWifi(const std::string& deviceId) {
     }
 
     std::thread(&DeviceManager::ReaderLoop, this, conn).detach();
+    return true;
+}
+
+bool DeviceManager::GetLatestFrame(const std::string& deviceId, std::vector<uint8_t>& outRgba, uint32_t& outWidth, uint32_t& outHeight) {
+    std::shared_ptr<LiveConnection> conn;
+    {
+        std::lock_guard<std::mutex> lock(m_mapMutex);
+        for (auto& kv : m_connections) {
+            if (kv.first == deviceId) { conn = kv.second; break; }
+        }
+    }
+    if (!conn) return false;
+
+    std::lock_guard<std::mutex> frameLock(conn->frameMutex);
+    if (conn->latestRgba.empty()) return false;
+    outRgba = conn->latestRgba;
+    outWidth = conn->frameWidth;
+    outHeight = conn->frameHeight;
     return true;
 }

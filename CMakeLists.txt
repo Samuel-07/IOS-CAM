@@ -22,10 +22,11 @@ add_executable(MiCamDesktop WIN32
     Desktop/src/UsbMuxClient.cpp
     Desktop/src/MdnsBrowser.cpp
     Desktop/src/SharedMemoryStream.cpp
+    Desktop/src/H264Decoder.cpp
     Desktop/src/resource.rc
     Shared/DeviceRegistry.cpp
 )
-target_link_libraries(MiCamDesktop PRIVATE ws2_32 Ole32 User32 Gdi32 Shlwapi Shell32)
+target_link_libraries(MiCamDesktop PRIVATE ws2_32 Ole32 User32 Gdi32 Shlwapi Shell32 mfplat mfuuid mf Advapi32)
 
 # Standalone diagnostic console tool (not shipped) for debugging usbmuxd/mDNS detection issues.
 add_executable(UsbMuxDebug
