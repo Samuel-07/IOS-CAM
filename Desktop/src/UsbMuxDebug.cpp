@@ -43,6 +43,7 @@ void TestHandshake(SOCKET s) {
     req.magic = MICAM_PROTOCOL_MAGIC;
     req.type = static_cast<uint8_t>(MiCamPacketType::HandshakeReq);
     req.payloadSize = 0;
+    MiCamHeaderToNetwork(req);
     int sent = send(s, (const char*)&req, sizeof(req), 0);
     std::cout << "  sent " << sent << " bytes (header size=" << sizeof(req) << ")\n";
 
@@ -51,6 +52,7 @@ void TestHandshake(SOCKET s) {
         std::cout << "  NOTHING RECEIVED within 5s - the phone never sent anything back on this socket.\n";
         return;
     }
+    MiCamHeaderToHost(header);
     std::cout << "  Got header: magic=0x" << std::hex << header.magic << std::dec
                << " type=" << (int)header.type << " payloadSize=" << header.payloadSize
                << " (expected magic=0x" << std::hex << MICAM_PROTOCOL_MAGIC << std::dec << ")\n";

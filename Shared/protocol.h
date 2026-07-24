@@ -101,4 +101,40 @@ struct MiCamHandshakeResponse {
 
 #pragma pack(pop)
 
+#ifdef _WIN32
+// The iOS side (Protocol.swift) serializes every multi-byte header/video-frame-header field
+// in network byte order (.bigEndian) by explicit design. Windows is little-endian, so every
+// send/receive of MiCamPacketHeader and MiCamVideoFrameHeader across the wire must convert
+// here - skipping this makes header.magic never match MICAM_PROTOCOL_MAGIC and silently kills
+// the connection on the first packet. MiCamControlCommand and MiCamHandshakeResponse are NOT
+// converted on the iOS side (raw/byte-only), so they must stay raw here too.
+#include <winsock2.h>
+
+inline uint64_t MiCamSwap64(uint64_t v) {
+    return ((uint64_t)ntohl((uint32_t)(v & 0xFFFFFFFFu)) << 32) | ntohl((uint32_t)(v >> 32));
+}
+
+inline void MiCamHeaderToNetwork(MiCamPacketHeader& h) {
+    h.magic = htonl(h.magic);
+    h.reserved = htons(h.reserved);
+    h.payloadSize = htonl(h.payloadSize);
+    h.timestampUs = MiCamSwap64(h.timestampUs);
+}
+
+// Network->host swap is its own inverse, so this doubles as MiCamHeaderToHost.
+inline void MiCamHeaderToHost(MiCamPacketHeader& h) {
+    h.magic = ntohl(h.magic);
+    h.reserved = ntohs(h.reserved);
+    h.payloadSize = ntohl(h.payloadSize);
+    h.timestampUs = MiCamSwap64(h.timestampUs);
+}
+
+inline void MiCamVideoFrameHeaderToHost(MiCamVideoFrameHeader& h) {
+    h.width = ntohs(h.width);
+    h.height = ntohs(h.height);
+    h.fps = ntohs(h.fps);
+    h.reserved = ntohs(h.reserved);
+}
+#endif // _WIN32
+
 #endif // MICAM_SHARED_PROTOCOL_H

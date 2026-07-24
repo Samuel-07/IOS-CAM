@@ -247,11 +247,13 @@ void DeviceManager::ReaderLoop(std::shared_ptr<LiveConnection> conn) {
     req.magic = MICAM_PROTOCOL_MAGIC;
     req.type = static_cast<uint8_t>(MiCamPacketType::HandshakeReq);
     req.payloadSize = 0;
+    MiCamHeaderToNetwork(req);
     SendExact(conn->socket, &req, sizeof(req));
 
     while (conn->running) {
         MiCamPacketHeader header{};
         if (!RecvExact(conn->socket, &header, sizeof(header))) break;
+        MiCamHeaderToHost(header);
         if (header.magic != MICAM_PROTOCOL_MAGIC) break;
         if (header.payloadSize > (16 * 1024 * 1024)) break; // sanity bound
 
@@ -275,7 +277,8 @@ void DeviceManager::ReaderLoop(std::shared_ptr<LiveConnection> conn) {
             conn->battery = tel->batteryLevel;
             conn->charging = tel->isCharging;
         } else if (type == MiCamPacketType::VideoFrameData && payload.size() > sizeof(MiCamVideoFrameHeader)) {
-            const auto* vh = reinterpret_cast<const MiCamVideoFrameHeader*>(payload.data());
+            auto* vh = reinterpret_cast<MiCamVideoFrameHeader*>(payload.data());
+            MiCamVideoFrameHeaderToHost(*vh);
             const uint8_t* naluData = payload.data() + sizeof(MiCamVideoFrameHeader);
             uint32_t naluSize = (uint32_t)(payload.size() - sizeof(MiCamVideoFrameHeader));
 
@@ -392,6 +395,7 @@ bool DeviceManager::SendControlCommand(const std::string& deviceId, const MiCamC
     header.magic = MICAM_PROTOCOL_MAGIC;
     header.type = static_cast<uint8_t>(MiCamPacketType::VideoConfigCmd);
     header.payloadSize = sizeof(MiCamControlCommand);
+    MiCamHeaderToNetwork(header);
 
     // Reuses the SAME persistent socket the device is already streaming/listening on -
     // never opens a throwaway connection (that used to make the iPhone tear down its
