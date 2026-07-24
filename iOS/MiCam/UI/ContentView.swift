@@ -7,7 +7,6 @@ struct ContentView: View {
     
     @State private var torchOn: Bool = false
     @State private var zoomFactor: CGFloat = 1.0
-    @State private var selectedLensIndex: Int = 0
     @State private var lastRearLensIndex: Int = 0 // Remembers the last non-front lens so the
     // Front button can flip back to it (see the lens button action below).
     @State private var showSettingsSheet: Bool = false
@@ -119,35 +118,42 @@ struct ContentView: View {
                 // Lens Selector Dial & Optics Bar
                 VStack(spacing: 14) {
                     // Quick Lens Switcher Pills (0.5x, 1x, 3x, Front)
+                    //
+                    // The highlighted button now reflects cameraManager.currentDevice directly
+                    // instead of a separate selectedLensIndex state that was set optimistically
+                    // the instant a button was tapped, regardless of whether the underlying
+                    // AVCaptureSession switch actually succeeded. That desync is what made the
+                    // Front button look "stuck": it visually stayed highlighted as selected
+                    // even on attempts where the real device never changed, so tapping it again
+                    // (meant to flip back to the rear lens) evaluated against the wrong state
+                    // and looked like it did nothing.
                     HStack(spacing: 14) {
                         ForEach(Array(cameraManager.availableDevices.enumerated()), id: \.element.id) { index, device in
+                            let isSelected = cameraManager.currentDevice?.id == device.id
                             Button(action: {
                                 if device.lensType == .front, cameraManager.currentDevice?.lensType == .front {
                                     // Already on the front camera and this IS the front button -
                                     // treat it as a flip-camera toggle back to whichever rear
-                                    // lens was active before, instead of doing nothing (which is
-                                    // what previously read as the button being "stuck").
+                                    // lens was active before.
                                     let backIndex = lastRearLensIndex
                                     guard cameraManager.availableDevices.indices.contains(backIndex) else { return }
-                                    selectedLensIndex = backIndex
                                     cameraManager.selectDevice(cameraManager.availableDevices[backIndex])
                                     return
                                 }
                                 if device.lensType != .front {
                                     lastRearLensIndex = index
                                 }
-                                selectedLensIndex = index
                                 cameraManager.selectDevice(device)
                             }) {
                                 Text(lensDisplayName(for: device))
-                                    .font(.system(size: 13, weight: selectedLensIndex == index ? .bold : .medium))
+                                    .font(.system(size: 13, weight: isSelected ? .bold : .medium))
                                     .frame(minWidth: 44, minHeight: 44)
-                                    .foregroundColor(selectedLensIndex == index ? .black : .white)
-                                    .background(selectedLensIndex == index ? Color(red: 0.0, green: 0.94, blue: 1.0) : Color.black.opacity(0.6))
+                                    .foregroundColor(isSelected ? .black : .white)
+                                    .background(isSelected ? Color(red: 0.0, green: 0.94, blue: 1.0) : Color.black.opacity(0.6))
                                     .clipShape(Circle())
                                     .overlay(
                                         Circle()
-                                            .stroke(selectedLensIndex == index ? Color(red: 0.0, green: 0.94, blue: 1.0) : Color.white.opacity(0.2), lineWidth: 1.5)
+                                            .stroke(isSelected ? Color(red: 0.0, green: 0.94, blue: 1.0) : Color.white.opacity(0.2), lineWidth: 1.5)
                                     )
                             }
                         }
