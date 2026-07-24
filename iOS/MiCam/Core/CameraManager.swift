@@ -138,11 +138,18 @@ public class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutput
     public func selectDevice(_ descriptor: CameraDeviceDescriptor) {
         captureQueue.async { [weak self] in
             guard let self = self else { return }
-            guard !self.isReconfiguring else { return }
+            guard !self.isReconfiguring else {
+                print("[CameraManager] selectDevice(\(descriptor.lensType)) DROPPED - isReconfiguring already true")
+                return
+            }
             // Re-tapping the lens you're already on used to still tear down and rebuild the
             // whole capture pipeline (and silently reset resolution/FPS back to the 1080p60
             // default via populateFormats below) - now a genuine no-op.
-            if descriptor.id == self.currentDevice?.id { return }
+            if descriptor.id == self.currentDevice?.id {
+                print("[CameraManager] selectDevice(\(descriptor.lensType)) NO-OP - already current (id=\(descriptor.id))")
+                return
+            }
+            print("[CameraManager] selectDevice(\(descriptor.lensType)) proceeding - was \(String(describing: self.currentDevice?.lensType))")
             self.isReconfiguring = true
 
             self.captureSession.beginConfiguration()

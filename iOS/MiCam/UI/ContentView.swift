@@ -131,18 +131,25 @@ struct ContentView: View {
                         ForEach(Array(cameraManager.availableDevices.enumerated()), id: \.element.id) { index, device in
                             let isSelected = cameraManager.currentDevice?.id == device.id
                             Button(action: {
+                                print("[ContentView] Lens tap: button=\(device.lensType) tappedIndex=\(index) currentDevice=\(String(describing: cameraManager.currentDevice?.lensType)) lastRearLensIndex=\(lastRearLensIndex)")
                                 if device.lensType == .front, cameraManager.currentDevice?.lensType == .front {
                                     // Already on the front camera and this IS the front button -
                                     // treat it as a flip-camera toggle back to whichever rear
                                     // lens was active before.
                                     let backIndex = lastRearLensIndex
-                                    guard cameraManager.availableDevices.indices.contains(backIndex) else { return }
-                                    cameraManager.selectDevice(cameraManager.availableDevices[backIndex])
+                                    guard cameraManager.availableDevices.indices.contains(backIndex) else {
+                                        print("[ContentView] Toggle: backIndex \(backIndex) out of range (count=\(cameraManager.availableDevices.count))")
+                                        return
+                                    }
+                                    let target = cameraManager.availableDevices[backIndex]
+                                    print("[ContentView] Toggle: switching back to \(target.lensType) at index \(backIndex)")
+                                    cameraManager.selectDevice(target)
                                     return
                                 }
                                 if device.lensType != .front {
                                     lastRearLensIndex = index
                                 }
+                                print("[ContentView] Normal select: \(device.lensType)")
                                 cameraManager.selectDevice(device)
                             }) {
                                 Text(lensDisplayName(for: device))
