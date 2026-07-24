@@ -8,6 +8,8 @@ struct ContentView: View {
     @State private var torchOn: Bool = false
     @State private var zoomFactor: CGFloat = 1.0
     @State private var selectedLensIndex: Int = 0
+    @State private var lastRearLensIndex: Int = 0 // Remembers the last non-front lens so the
+    // Front button can flip back to it (see the lens button action below).
     @State private var showSettingsSheet: Bool = false
     
     var body: some View {
@@ -120,6 +122,20 @@ struct ContentView: View {
                     HStack(spacing: 14) {
                         ForEach(Array(cameraManager.availableDevices.enumerated()), id: \.element.id) { index, device in
                             Button(action: {
+                                if device.lensType == .front, cameraManager.currentDevice?.lensType == .front {
+                                    // Already on the front camera and this IS the front button -
+                                    // treat it as a flip-camera toggle back to whichever rear
+                                    // lens was active before, instead of doing nothing (which is
+                                    // what previously read as the button being "stuck").
+                                    let backIndex = lastRearLensIndex
+                                    guard cameraManager.availableDevices.indices.contains(backIndex) else { return }
+                                    selectedLensIndex = backIndex
+                                    cameraManager.selectDevice(cameraManager.availableDevices[backIndex])
+                                    return
+                                }
+                                if device.lensType != .front {
+                                    lastRearLensIndex = index
+                                }
                                 selectedLensIndex = index
                                 cameraManager.selectDevice(device)
                             }) {
